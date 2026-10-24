@@ -1,195 +1,280 @@
 # Dynamic Cloud Failure Detection and QoS-Aware Service Reselection
 
-> **Major Project Demonstration Prototype**  
-> Inspired by: IEEE ICIMIA-2025 paper — *"A Hybrid Deep Reinforcement and Swarm Optimization Strategy for Intelligent Cloud Service Composition"*
+**Major Project Demonstration Prototype**
+
+Inspired by the IEEE ICIMIA-2025 paper: _A Hybrid Deep Reinforcement and Swarm Optimization Strategy for Intelligent Cloud Service Composition_
 
 ---
 
 ## 1. Project Overview
 
-Modern cloud architectures depend heavily on multi-service workflows and distributed cloud APIs. While static QoS (Quality of Service) models evaluate candidate services based on advertised Service Level Agreements (SLAs), real-world cloud environments suffer from dynamic latency spikes, transient degradation, and total service outages.
+Modern cloud architectures rely on interconnected services, distributed APIs, and dynamic service orchestration. Although traditional Quality of Service (QoS) models evaluate cloud services using advertised Service Level Agreements (SLAs), real-world environments can experience latency spikes, service degradation, and unexpected outages.
 
-This project delivers a functional, standalone simulation prototype that models dynamic cloud service failures, evaluates multi-criteria QoS metrics in real time, and dynamically recommends an optimal eligible replacement candidate when failures occur.
+**Dynamic Cloud Failure Detection and QoS-Aware Service Reselection** is a standalone simulation prototype that models cloud service failures, evaluates multiple QoS metrics, and dynamically recommends the best eligible replacement when a service becomes degraded or unavailable.
 
----
+The system provides an interactive dashboard for simulating failures, comparing service performance, understanding reselection decisions, and inspecting an event audit log.
 
-## 2. Problem Statement & Proposed Improvement
+## 2. Problem Statement and Proposed Improvement
 
-### The Problem
-Existing cloud composition approaches often assume static service registries or rely on offline optimization. When an active cloud service experiences an outage or severe QoS degradation, composition pipelines experience execution stalls, SLA violations, or unhandled exceptions unless resilient reselection is built into the orchestration layer.
+### Problem Statement
 
-### Proposed Improvement over the Paper's Framework
-The IEEE ICIMIA-2025 paper outlines a cloud service repository, an environment simulator, a QoS evaluator, and a composition engine. Our improvement concretizes this framework into a **transparent, real-time reselection engine**:
-- **Baseline-Anchored Normalization:** Metric normalization is calculated against baseline reference bounds, ensuring that a failure in one service decreases its own score without warping the scores of untouched services.
-- **Fail-Safe Ineligibility Rules:** Total outages immediately disqualify a service from recommendation regardless of its prior QoS score.
-- **Decision Explainability:** The system provides explicit, human-readable explanations detailing why a specific candidate was chosen and why previous choices were superseded or excluded.
+Existing cloud service composition approaches may rely on static service registries or offline optimization. When an active service experiences an outage or significant QoS degradation, the orchestration process can encounter execution failures, SLA violations, or service interruptions without an appropriate reselection mechanism.
 
----
+### Proposed Improvement
+
+Inspired by the framework presented in the reference paper, this project implements a transparent, QoS-aware service reselection mechanism with three key improvements.
+
+- **Baseline-Anchored Normalization:** QoS scores are calculated using fixed baseline reference bounds so that degrading one service does not distort the scores of unaffected services.
+- **Fail-Safe Eligibility Rules:** Completely unavailable services are immediately excluded from recommendations, regardless of their previous QoS scores.
+- **Decision Explainability:** Human-readable explanations describe why a candidate was selected, why a previous recommendation changed, and why unavailable services were excluded.
+
+These improvements are implemented in a deterministic simulation prototype rather than a trained deep reinforcement learning or particle swarm optimization system.
 
 ## 3. Synthetic Data Disclaimer
 
-> **Important Disclaimer:**  
-> All candidate cloud services, metrics (latency, cost, availability, reliability), and simulated failure events are **100% synthetic**. This prototype does not connect to real cloud providers, does not provision cloud infrastructure, and does not claim to reproduce the experimental benchmarks or train the DRL/PSO models described in the original IEEE paper.
+> **Important:** All cloud services, QoS metrics, and failure events in this project are synthetic.
 
----
+This prototype does not connect to real cloud providers, provision cloud infrastructure, or execute production cloud workloads. It does not claim to reproduce the experimental benchmarks or train the DRL/PSO models described in the reference IEEE paper.
 
-## 4. Architecture & Module Responsibilities
+The project is intended for academic demonstration, experimentation, and evaluation of QoS-aware service reselection concepts.
 
-The codebase follows a modular design with separation of concerns:
+## 4. System Architecture
 
-```
+```text
 Dynamic-Cloud-Failure-and-QoS-Simulation/
-├── app.py                     # Streamlit web dashboard & interactive visualization
-├── requirements.txt           # Project dependencies
-├── README.md                  # System documentation & demo guide
-├── .gitignore                 # Standard Python exclusions
+├── app.py
+├── requirements.txt
+├── README.md
+├── .gitignore
 ├── src/
-│   ├── __init__.py            # Package entry
-│   ├── service_registry.py    # Synthetic candidate services & baseline QoS data
-│   ├── qos_evaluator.py       # Multi-criteria normalization and weighted scoring
-│   ├── failure_simulator.py   # Deterministic fault injection & state management
-│   └── recommendation_engine.py # Transparent candidate ranking & explanation
+│   ├── __init__.py
+│   ├── service_registry.py
+│   ├── qos_evaluator.py
+│   ├── failure_simulator.py
+│   └── recommendation_engine.py
 └── tests/
     ├── __init__.py
-    ├── test_service_registry.py (integrated into test suite)
+    ├── test_service_registry.py
     ├── test_qos_evaluator.py
     ├── test_failure_simulator.py
     └── test_recommendation_engine.py
 ```
 
-### Module Breakdown
-- `src/service_registry.py`: Defines the `CloudService` data model and registers 7 synthetic cloud services across two functional categories (`Compute` and `Storage`). Retains immutable baseline QoS values.
-- `src/qos_evaluator.py`: Implements lower-is-better (Latency, Cost) and higher-is-better (Availability, Reliability) normalization formulas, weight validation and normalization (sum-to-1), zero-division safeguards, and metric clamping.
-- `src/failure_simulator.py`: Manages runtime operational state, supports latency spikes, outage triggers, availability reductions, single-service restoration, and global simulation reset. Maintained with an append-only event audit log.
-- `src/recommendation_engine.py`: Filters by service category, excludes unavailable/failed services, sorts by aggregate QoS score, and produces transparent decision logs and reselection explanations.
-- `app.py`: Provides a responsive Streamlit UI featuring KPI summary cards, candidate tables, Plotly comparative bar charts, and simulation control panels.
+### Module Responsibilities
 
----
+| Module                         | Responsibility                                                                                                                                          |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app.py`                       | Streamlit dashboard, KPI cards, interactive controls, candidate tables, and Plotly charts.                                                              |
+| `src/service_registry.py`      | Defines the `CloudService` model, registers seven synthetic services across Compute and Storage categories, and retains baseline QoS values.            |
+| `src/qos_evaluator.py`         | Implements metric normalization, weighted QoS scoring, weight validation, clamping, and division-by-zero safeguards.                                    |
+| `src/failure_simulator.py`     | Simulates latency spikes, outages, availability reductions, service restoration, and global reset operations. Maintains an append-only event audit log. |
+| `src/recommendation_engine.py` | Filters candidates by category and operational status, ranks eligible services, and generates decision explanations.                                    |
+| `tests/`                       | Contains automated tests for registry behavior, QoS evaluation, failure simulation, and recommendation logic.                                           |
 
 ## 5. Technology Stack
 
-- **Language:** Python 3.10+
-- **Web UI & Dashboard:** Streamlit
+- **Programming Language:** Python 3.10+
+- **Dashboard:** Streamlit
 - **Data Manipulation:** Pandas
-- **Interactive Visualizations:** Plotly Express & Plotly Graph Objects
-- **Testing Framework:** Pytest
+- **Visualization:** Plotly Express and Plotly Graph Objects
+- **Testing:** Pytest
 
----
+## 6. Installation and Setup
 
-## 6. Installation Instructions (Windows PowerShell)
+### Prerequisites
 
-Ensure Python 3.10+ is installed on your Windows machine.
+- Python 3.10 or later
+- Windows PowerShell (for the commands below)
+- Git, if cloning the repository
 
-### Option A: Using the Project Virtual Environment (.venv)
-Open Windows PowerShell in the project directory:
+Open PowerShell in the project directory.
+
+### Option A: Use the project virtual environment
 
 ```powershell
-cd "c:\Users\Mahendra\OneDrive\Desktop\Dynamic-Cloud-Failure-and-QoS-Simulation"
+cd "C:\Users\Mahendra\OneDrive\Desktop\Dynamic-Cloud-Failure-and-QoS-Simulation"
 
 # Activate the virtual environment
 .\.venv\Scripts\Activate.ps1
 
-# (Dependencies are already installed, or update with):
-pip install -r requirements.txt
+# Install or update dependencies
+python -m pip install -r requirements.txt
 ```
 
-### Option B: Using System Anaconda Directly
+If PowerShell blocks virtual environment activation, use the direct invocation commands in Option B or Option C.
+
+### Option B: Use the virtual environment executables directly
+
 ```powershell
-# Direct invocation with Anaconda Python
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+### Option C: Use Anaconda Python
+
+```powershell
 & "$env:USERPROFILE\anaconda3\python.exe" -m pip install -r requirements.txt
 ```
 
----
+Ensure that `requirements.txt` includes the project's required dependencies, including Streamlit, Pandas, Plotly, and Pytest.
 
 ## 7. Running the Application
 
-To launch the interactive dashboard locally:
+From the project root, launch the dashboard using one of the following commands.
+
+### With the activated virtual environment
 
 ```powershell
-# Option 1: Using activated .venv:
 streamlit run app.py
+```
 
-# Option 2: Direct one-liner via .venv:
+### Without activating the virtual environment
+
+```powershell
 .\.venv\Scripts\streamlit.exe run app.py
+```
 
-# Option 3: Direct one-liner via Anaconda:
+### Using Anaconda
+
+```powershell
 & "$env:USERPROFILE\anaconda3\python.exe" -m streamlit run app.py
 ```
 
-The application will start and open automatically in your default browser at:
-`http://localhost:8501`
+Once the server starts, open the local URL displayed in the terminal. The default address is:
 
----
+**http://localhost:8501**
 
-## 8. Executing the Test Suite
+## 8. Running the Automated Tests
 
-Run the complete automated unit test suite with verbose output:
+Execute the test suite from the project root.
 
 ```powershell
-# Option 1: Using activated .venv:
-pytest -v
+python -m pytest -v
+```
 
-# Option 2: Direct one-liner via .venv:
+Alternatively, use the virtual environment directly:
+
+```powershell
 .\.venv\Scripts\pytest.exe -v
+```
 
-# Option 3: Direct one-liner via Anaconda:
+Or use Anaconda:
+
+```powershell
 & "$env:USERPROFILE\anaconda3\python.exe" -m pytest -v
 ```
 
-All 21 unit tests cover:
-- Lower-is-better normalization and clamping (Latency & Cost)
-- Higher-is-better normalization and clamping (Availability & Reliability)
-- Sensitivity verification: lower latency/cost increases score, higher availability/reliability increases score
-- Equal minimum/maximum edge cases without division by zero
-- Non-negative weight validation and sum-to-1 normalization
-- Weighted QoS aggregate scoring
-- Latency spike injection and bounds verification
-- Outage marking and immediate candidate exclusion
-- Availability reductions and bounded clamping [0, 100]%
-- Service restoration idempotency
-- Global simulation reset idempotency
-- Zero drift across repeated restore and reset iterations
-- Category filtering
-- Deterministic candidate ranking and tie-breaking
-- All-unavailable edge case handling without crashes
+### Test Coverage
+
+The documented test suite contains 21 unit tests covering the following areas:
+
+- Lower-is-better normalization for latency and cost.
+- Higher-is-better normalization for availability and reliability.
+- Metric sensitivity and score direction.
+- Equal minimum/maximum bounds and division-by-zero protection.
+- Non-negative weight validation and sum-to-one normalization.
+- Weighted aggregate QoS scoring.
+- Latency spike injection and metric bounds.
+- Outage simulation and immediate candidate exclusion.
+- Availability reductions and percentage clamping.
+- Idempotent service restoration and global reset.
+- Baseline consistency across repeated restoration cycles.
+- Category filtering and deterministic candidate ranking.
+- Tie-breaking behavior.
+- Handling categories in which every service is unavailable.
+
+**Note:** The count of 21 tests should be updated if the actual test suite changes. Run the test command and report the observed result rather than assuming every test passes.
+
+## 9. Demonstration Scenarios
+
+The following sequence can be used during a project presentation.
+
+### Scenario 1: Inspect the Baseline State
+
+1. Launch the dashboard.
+2. Select the `Compute` category.
+3. Inspect the candidate services and their baseline QoS scores.
+4. Review the total-service, healthy-service, and unavailable-service KPIs.
+5. Identify the highest-ranked eligible service.
+
+The expected baseline is five Compute services, five healthy services, and zero unavailable services, assuming the registry matches the documented configuration.
+
+### Scenario 2: Latency Spike and Dynamic Reselection
+
+1. Select `SVC-C01` or the currently recommended Compute service.
+2. Enter `150` in the latency spike field.
+3. Click **Inject Latency Spike**.
+4. Observe the updated latency and QoS score.
+5. Inspect the newly recommended eligible service.
+6. Review the explanation panel and comparative chart.
+
+For the documented example, increasing latency from 45 ms by 150 ms produces a simulated latency of 195 ms.
+
+The recommendation should change if the degraded service no longer ranks first and another eligible candidate scores higher.
+
+### Scenario 3: Total Service Outage
+
+1. Select the currently recommended service.
+2. Click **Simulate Outage**.
+3. Verify that its operational status becomes `UNAVAILABLE`.
+4. Confirm that it is excluded from the recommendation candidates.
+5. Inspect the replacement recommendation and exclusion explanation.
+
+The replacement depends on the current QoS weights, service metrics, and eligibility rules. Verify the exact selected service during the demonstration.
+
+### Scenario 4: Complete Category Failure
+
+1. Simulate outages for all remaining Compute services.
+2. Observe the recommendation engine after each outage.
+3. Confirm that no unavailable service is recommended.
+4. Verify that the dashboard displays a clear no-eligible-service warning when every Compute service is unavailable.
+
+The application should handle this edge case without crashing.
+
+### Scenario 5: Restoration and Global Reset
+
+1. Restore an individual service.
+2. Confirm that its operational state returns to normal.
+3. Click **Reset All Services**.
+4. Verify that all services return to their baseline state.
+5. Inspect the event audit log to review the chronological sequence of simulated events.
+
+The restoration and reset operations should be repeatable without accumulating unintended changes to baseline QoS values.
+
+## 10. Limitations
+
+The current prototype has the following limitations:
+
+- **Simulation Only:** All services and failure events are synthetic.
+- **Single-Service Reselection:** The system selects an alternative service within a functional category rather than executing a complete multi-service workflow.
+- **Deterministic Recommendation:** Candidate selection uses weighted QoS evaluation and ranking rather than a trained DRL policy.
+- **No Production Integration:** The prototype does not invoke real cloud APIs or provision cloud resources.
+- **No Benchmark Reproduction Claim:** Results from this dashboard should not be presented as reproduced experimental results from the reference paper.
+
+## 11. Future Work
+
+Potential extensions for a future version include:
+
+- Multi-cloud service composition across multiple providers.
+- Dependency-aware workflow modeling using directed acyclic graphs (DAGs).
+- Network jitter and correlated failure simulation.
+- SLA violation prediction and proactive service reselection.
+- Integration of reinforcement learning for adaptive decision-making.
+- Integration of particle swarm optimization for candidate or workflow optimization.
+- Performance evaluation using repeatable experiments and documented datasets.
+
+These extensions are outside the scope of the current demonstration prototype.
+
+## 12. Project Summary
+
+Dynamic Cloud Failure Detection and QoS-Aware Service Reselection demonstrates how a cloud service orchestration system can respond to simulated failures through baseline-anchored QoS evaluation, fail-safe eligibility filtering, deterministic candidate ranking, and transparent decision explanations.
+
+The Streamlit dashboard makes these mechanisms observable and testable through interactive failure injection, service restoration, comparative visualizations, and event logging.
+
+The result is a modular academic prototype for demonstrating the principles of resilient, QoS-aware cloud service reselection.
 
 ---
 
-## 9. Demonstration Sequence for Project Presentations
-
-Follow this 5-step sequence during a project demonstration:
-
-1. **Baseline State Inspection:**
-   - Launch the dashboard and view the `Compute` category.
-   - Observe that `NovaCompute Standard` (`SVC-C01`) or `AetherCompute HighPerf` (`SVC-C02`) is selected with the highest QoS score.
-   - Review the summary KPI cards: `5 Total`, `5 Healthy`, `0 Unavailable`.
-
-2. **Scenario 1: Latency Spike & Dynamic Reselection:**
-   - In the sidebar, select target service `SVC-C01` (or the top recommended service).
-   - Enter `150` in the "Spike (ms)" field and click **⚡ Inject Latency Spike**.
-   - **Observe:** The latency of the target service spikes from 45.0ms to 195.0ms. Its QoS score drops immediately, and the recommendation engine automatically reselects the next best available alternative (e.g., `SVC-C02`).
-   - The explanation panel highlights the reselection trigger and metric comparison.
-   - The Plotly bar chart visually displays the score degradation.
-
-3. **Scenario 2: Total Outage Simulation:**
-   - Select the newly recommended service (`SVC-C02`).
-   - Click **🔴 Simulate Outage**.
-   - **Observe:** The operational status changes to `UNAVAILABLE` (marked with a red badge).
-   - The service is immediately disqualified from candidate consideration, and the engine seamlessly reselects an eligible alternative (`SVC-C04` / `TitanCompute Enterprise`).
-   - The Excluded Services panel explains why `SVC-C02` was removed.
-
-4. **Scenario 3: Complete Category Failure (Edge Case):**
-   - Click **🔴 Simulate Outage** on each remaining Compute service until all are marked `UNAVAILABLE`.
-   - **Observe:** The system does not crash. It displays an alert: `🚨 NO ELIGIBLE SERVICE AVAILABLE! All 5 service(s) in category 'Compute' are currently UNAVAILABLE.`
-
-5. **Scenario 4: Service Restoration & Global Reset:**
-   - Click **🟢 Restore Service** on any service to demonstrate single-service recovery back to baseline.
-   - Click **🔄 Reset All Services** to demonstrate idempotent global restoration of all services, clearing degradation and returning the registry to pristine baseline state.
-   - Check the **Simulation Event Audit Log** to see the full chronological history of events.
-
----
-
-## 10. Limitations & Future Work
-
-- **Phase 1 Prototype Scope:** Focuses on deterministic single-service reselection within a single category rather than end-to-end multi-service composition workflow graph execution.
-- **Future Work (Phase 2):** Integration of multi-cloud service composition pipelines, dependency DAG evaluation, network jitter simulation, and adaptive reinforcement learning policies.
+**Project Type:** Academic Major Project Demonstration Prototype  
+**Implementation:** Python, Streamlit, Pandas, Plotly, Pytest  
+**Data:** Fully synthetic  
+**Reference:** IEEE ICIMIA-2025 paper on hybrid deep reinforcement learning and swarm optimization for intelligent cloud service composition
