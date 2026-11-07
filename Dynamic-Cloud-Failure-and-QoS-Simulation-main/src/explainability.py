@@ -19,6 +19,7 @@ import pandas as pd
 from src.service_registry import CloudService
 from src.qos_evaluator import MetricScores, QoSEvaluator
 from src.recommendation_engine import RecommendationResult
+from src.sla_config import SLAConfig, validate_service_sla
 from src.analytics import classify_service_health, HEALTH_HEALTHY, HEALTH_DEGRADED, HEALTH_UNAVAILABLE
 
 
@@ -168,10 +169,10 @@ def generate_detailed_reselection_explanation(
     if not recommendation.has_eligible_service or not recommendation.selected_service:
         return {
             "has_recommendation": False,
-            "headline": "No Eligible Service Available",
-            "summary": "Every candidate service in this category is currently in an UNAVAILABLE (outage) state.",
-            "reselection_trigger": "Universal Outage",
-            "details": ["All services failed the fail-safe operational status constraint."],
+            "headline": "No Eligible Service Available (No SLA-Compliant Service Available)",
+            "summary": "Every candidate service in this category is currently unavailable or violates configured SLA thresholds.",
+            "reselection_trigger": "Universal Ineligibility (Outage / SLA Violation)",
+            "details": ["All services failed operational availability or SLA compliance constraints."],
             "comparison_prev": None,
             "comparison_runner_up": None,
             "runner_up": None,
@@ -207,10 +208,17 @@ def generate_detailed_reselection_explanation(
                 f"🚨 **Disqualification of Prior Choice:** Prior recommended service `{prev_svc.name}` ({prev_svc.service_id}) "
                 f"entered an **UNAVAILABLE** state. Under fail-safe eligibility rules, it was immediately excluded from consideration."
             )
+        elif recommendation.sla_config and (prev_violations := validate_service_sla(prev_svc, recommendation.sla_config)):
+            reselection_trigger = "Prior Service SLA Violation"
+            reselection_type = "SLA_VIOLATION"
+            violations_text = "; ".join(prev_violations)
+            details.append(
+                f"🚨 **SLA Violation Disqualification:** Prior recommended service `{prev_svc.name}` ({prev_svc.service_id}) "
+                f"violated configured SLA constraints ({violations_text}). Under strict eligibility rules, it was disqualified from recommendation."
+            )
         elif prev_health == HEALTH_DEGRADED:
             reselection_trigger = "Prior Service QoS Degradation"
             reselection_type = "DEGRADATION"
-            score_drop = (prev_svc.baseline.get("latency", 0) - prev_svc.latency)
             details.append(
                 f"⚠️ **Prior Choice Degradation:** Prior recommended service `{prev_svc.name}` ({prev_svc.service_id}) "
                 f"experienced performance degradation (QoS score dropped to `{prev_score.qos_score:.4f}`). "
@@ -413,13 +421,16 @@ def build_candidate_comparison_table(
     # Next append excluded services
     for s, reason in recommendation.excluded_services:
         scores = evaluator.evaluate_service(s, weights)
+        is_outage = (s.operational_status == "UNAVAILABLE")
+        role = "Excluded / Down" if is_outage else "Excluded / SLA Violation"
+        health = classify_service_health(s)
         rows.append({
             "Rank": "Excluded",
             "Service ID": s.service_id,
             "Service Name": s.name,
             "Eligibility": "❌ Ineligible",
-            "Role": "Excluded / Down",
-            "Health Status": HEALTH_UNAVAILABLE,
+            "Role": role,
+            "Health Status": health,
             "Aggregate QoS Score": scores.qos_score,
             "Latency (ms)": f"{s.latency:.1f}",
             "Cost ($)": f"${s.cost:.3f}",
