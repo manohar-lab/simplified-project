@@ -29,6 +29,7 @@ import plotly.graph_objects as go
 # --- Project module imports ---
 from src.service_registry import get_default_services, compute_reference_bounds, CloudService
 from src.qos_evaluator import QoSEvaluator, validate_and_normalize_weights
+from src.sla_config import SLAConfig, get_default_sla_config, validate_service_sla
 from src.failure_simulator import FailureSimulator
 from src.recommendation_engine import RecommendationEngine
 from src.analytics import (
@@ -203,6 +204,44 @@ with st.sidebar:
 
     st.markdown("---")
 
+    # --- SLA Constraint Configuration ---
+    st.subheader("🛡️ SLA Eligibility Constraints")
+    st.caption("Hard constraints: services violating any threshold are disqualified.")
+
+    cat_default_sla = get_default_sla_config(selected_category)
+    sla_max_lat = st.number_input(
+        "Max Allowed Latency (ms)",
+        min_value=10.0,
+        max_value=1000.0,
+        value=float(cat_default_sla.max_latency),
+        step=10.0,
+        help="Maximum acceptable response time in milliseconds.",
+    )
+    sla_min_avail = st.number_input(
+        "Min Required Availability (%)",
+        min_value=50.0,
+        max_value=100.0,
+        value=float(cat_default_sla.min_availability),
+        step=0.5,
+        help="Minimum acceptable availability percentage.",
+    )
+    sla_min_rel = st.number_input(
+        "Min Required Reliability (%)",
+        min_value=50.0,
+        max_value=100.0,
+        value=float(cat_default_sla.min_reliability),
+        step=0.5,
+        help="Minimum acceptable reliability percentage.",
+    )
+
+    active_sla = SLAConfig(
+        max_latency=float(sla_max_lat),
+        min_availability=float(sla_min_avail),
+        min_reliability=float(sla_min_rel),
+    )
+
+    st.markdown("---")
+
     # --- QoS Metric Weight Sliders ---
     st.subheader("🎯 QoS Metric Priorities")
     st.caption("Adjust importance weights (normalized automatically):")
@@ -301,7 +340,7 @@ with st.sidebar:
             weights=normalized_weights,
         )
         # Log to reselection decision audit trail
-        new_rec = engine.recommend(simulator.get_all_services(), selected_category, normalized_weights, prev_choice_id)
+        new_rec = engine.recommend(simulator.get_all_services(), selected_category, normalized_weights, prev_choice_id, sla_config=active_sla)
         reselection_audit_trail.record_decision(
             trigger_event=f"Latency Spike (+{spike_val}ms) on {target_service_id}",
             recommendation=new_rec,
@@ -341,7 +380,7 @@ with st.sidebar:
             evaluator=evaluator,
             weights=normalized_weights,
         )
-        new_rec = engine.recommend(simulator.get_all_services(), selected_category, normalized_weights, prev_choice_id)
+        new_rec = engine.recommend(simulator.get_all_services(), selected_category, normalized_weights, prev_choice_id, sla_config=active_sla)
         reselection_audit_trail.record_decision(
             trigger_event=f"Outage Triggered on {target_service_id}",
             recommendation=new_rec,
@@ -381,7 +420,7 @@ with st.sidebar:
             evaluator=evaluator,
             weights=normalized_weights,
         )
-        new_rec = engine.recommend(simulator.get_all_services(), selected_category, normalized_weights, prev_choice_id)
+        new_rec = engine.recommend(simulator.get_all_services(), selected_category, normalized_weights, prev_choice_id, sla_config=active_sla)
         reselection_audit_trail.record_decision(
             trigger_event=f"Availability Drop (-{drop_val}%) on {target_service_id}",
             recommendation=new_rec,
@@ -421,7 +460,7 @@ with st.sidebar:
             evaluator=evaluator,
             weights=normalized_weights,
         )
-        new_rec = engine.recommend(simulator.get_all_services(), selected_category, normalized_weights, prev_choice_id)
+        new_rec = engine.recommend(simulator.get_all_services(), selected_category, normalized_weights, prev_choice_id, sla_config=active_sla)
         reselection_audit_trail.record_decision(
             trigger_event=f"Service Restored on {target_service_id}",
             recommendation=new_rec,
@@ -453,7 +492,7 @@ with st.sidebar:
             evaluator=evaluator,
             weights=normalized_weights,
         )
-        reset_rec = engine.recommend(simulator.get_all_services(), selected_category, normalized_weights, None)
+        reset_rec = engine.recommend(simulator.get_all_services(), selected_category, normalized_weights, None, sla_config=active_sla)
         reselection_audit_trail.record_decision(
             trigger_event="Reset All Services to Baseline",
             recommendation=reset_rec,
@@ -483,6 +522,7 @@ recommendation = engine.recommend(
     category=selected_category,
     weights=normalized_weights,
     previously_selected_id=st.session_state.prev_recommended_id,
+    sla_config=active_sla,
 )
 
 # Generate intelligent explainability breakdown
@@ -537,35 +577,57 @@ tab_overview, tab_analytics, tab_failure, tab_history = st.tabs([
 # Tab 1: Overview & Intelligent Recommendation Explainability
 # =========================================================================
 with tab_overview:
+    # --- Configured SLA Thresholds Banner ---
+    st.markdown(
+        f"""
+        <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-left: 4px solid #2563EB; border-radius: 6px; padding: 10px 16px; margin-bottom: 14px; display: flex; flex-wrap: wrap; gap: 24px; align-items: center;">
+            <span style="font-weight: 700; color: #1E293B;">🛡️ Configured SLA Thresholds ({selected_category}):</span>
+            <span style="color: #475569;">Max Latency: <b>&le; {active_sla.max_latency:.1f} ms</b></span>
+            <span style="color: #475569;">Min Availability: <b>&ge; {active_sla.min_availability:.2f}%</b></span>
+            <span style="color: #475569;">Min Reliability: <b>&ge; {active_sla.min_reliability:.2f}%</b></span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     # --- KPI Cards Row ---
     total_in_cat = len(category_services)
-    healthy_in_cat = len([s for s in category_services if classify_service_health(s) == HEALTH_HEALTHY])
-    degraded_in_cat = len([s for s in category_services if classify_service_health(s) == HEALTH_DEGRADED])
-    unavailable_in_cat = len([s for s in category_services if classify_service_health(s) == HEALTH_UNAVAILABLE])
-    rec_name = recommendation.selected_service.name if recommendation.selected_service else "None (Outage)"
+    eligible_in_cat = len(recommendation.ranked_eligible)
+    excluded_in_cat = len(recommendation.excluded_services)
+    unavailable_in_cat = len([s for s in category_services if s.operational_status == "UNAVAILABLE"])
+    rec_name = recommendation.selected_service.name if recommendation.selected_service else "None (No SLA-Compliant Service)"
     rec_score = f"{recommendation.selected_scores.qos_score:.4f}" if recommendation.selected_scores else "N/A"
 
     kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
     with kpi1:
-        st.metric("Total Services", total_in_cat)
+        st.metric("Total Evaluated", total_in_cat)
     with kpi2:
-        st.metric("Healthy", healthy_in_cat, delta="Operational" if healthy_in_cat > 0 else None)
+        st.metric(
+            "SLA Eligible",
+            eligible_in_cat,
+            delta="Compliant" if eligible_in_cat > 0 else "0 Compliant",
+            delta_color="normal" if eligible_in_cat > 0 else "inverse",
+        )
     with kpi3:
         st.metric(
-            "Degraded",
-            degraded_in_cat,
-            delta=f"+{degraded_in_cat} degraded" if degraded_in_cat > 0 else "0 degraded",
-            delta_color="inverse" if degraded_in_cat > 0 else "normal",
+            "Excluded / Ineligible",
+            excluded_in_cat,
+            delta=f"{excluded_in_cat} Ineligible" if excluded_in_cat > 0 else "0 Ineligible",
+            delta_color="inverse" if excluded_in_cat > 0 else "normal",
         )
     with kpi4:
         st.metric(
-            "Unavailable / Outage",
+            "Unavailable / Down",
             unavailable_in_cat,
             delta=f"+{unavailable_in_cat} down" if unavailable_in_cat > 0 else "0 down",
             delta_color="inverse" if unavailable_in_cat > 0 else "normal",
         )
     with kpi5:
-        st.metric("Recommended Service", rec_name, delta=f"QoS: {rec_score}")
+        st.metric(
+            "Selected Service",
+            rec_name,
+            delta=f"QoS: {rec_score}" if recommendation.selected_scores else "No Selection",
+        )
 
     st.markdown("---")
 
@@ -615,7 +677,7 @@ with tab_overview:
     with col_dec2:
         reselect_trig = explanation_data.get("reselection_trigger", "Optimal Score Selection")
         reselect_type = explanation_data.get("reselection_type", "INITIAL")
-        type_icon = "🚨" if reselect_type == "OUTAGE" else ("⚠️" if reselect_type == "DEGRADATION" else "🏆")
+        type_icon = "🚨" if reselect_type in ("OUTAGE", "SLA_VIOLATION") else ("⚠️" if reselect_type == "DEGRADATION" else "🏆")
         st.markdown(
             f"""
             <div class="metric-card">
@@ -623,7 +685,7 @@ with tab_overview:
                 <div style="font-size:1.15rem; font-weight:700; color:#1E293B; margin:4px 0;">{type_icon} {reselect_trig}</div>
                 <div>Action: <b>{'Service Reselection' if explanation_data.get('is_reselection') else 'Optimal Rank #1 Selection'}</b></div>
                 <div style="margin-top:4px; font-size:0.88rem; color:#475569;">
-                    Evaluated across {len(category_services)} services with active QoS weights.
+                    Evaluated across {len(category_services)} services with active SLA thresholds.
                 </div>
             </div>
             """,
@@ -655,9 +717,9 @@ with tab_overview:
                 """
                 <div class="metric-card" style="border-left: 4px solid #EF4444;">
                     <div style="font-size:0.82rem; color:#EF4444; font-weight:600; text-transform:uppercase;">Newly Recommended Winner</div>
-                    <div style="font-size:1.15rem; font-weight:700; color:#EF4444; margin:4px 0;">None (Universal Outage)</div>
-                    <div>Status: <b>🔴 ALL UNAVAILABLE</b></div>
-                    <div style="margin-top:4px; font-size:0.88rem; color:#B91C1C;">All candidates failed operational constraints.</div>
+                    <div style="font-size:1.15rem; font-weight:700; color:#EF4444; margin:4px 0;">No SLA-Compliant Service Available</div>
+                    <div>Status: <b>🔴 ALL CANDIDATES INELIGIBLE</b></div>
+                    <div style="margin-top:4px; font-size:0.88rem; color:#B91C1C;">Every candidate is either unavailable or violates configured SLA thresholds.</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -672,9 +734,9 @@ with tab_overview:
         st.markdown("#### 🔍 Explain Why This Service Was Selected")
         if not recommendation.has_eligible_service:
             st.error(
-                f"🚨 **NO ELIGIBLE SERVICE AVAILABLE!**\n\n"
+                f"🚨 **No SLA-Compliant Service Available**\n\n"
                 f"{recommendation.status_message}\n\n"
-                f"**Root Cause:** All candidates in category '{selected_category}' are currently in an outage/UNAVAILABLE state."
+                f"**Root Cause:** All candidates in category '{selected_category}' are currently in an outage state or violate active SLA constraint thresholds."
             )
         else:
             winner = recommendation.selected_service
@@ -693,9 +755,10 @@ with tab_overview:
 
         # List ineligible services and rejection reasons
         if recommendation.excluded_services:
-            with st.expander(f"⚠️ Ineligible Excluded Candidates ({len(recommendation.excluded_services)})"):
+            with st.expander(f"⚠️ Ineligible Excluded Candidates ({len(recommendation.excluded_services)})", expanded=not recommendation.has_eligible_service):
                 for s, reason in recommendation.excluded_services:
-                    st.markdown(f"- **{s.name} (`{s.service_id}`)**: Disqualified under fail-safe rule — *{reason}*")
+                    icon = "🔴" if s.operational_status == "UNAVAILABLE" else "⚠️"
+                    st.markdown(f"- {icon} **{s.name} (`{s.service_id}`)**: *{reason}*")
 
     with col_ov_right:
         # Service Health Donut Chart
@@ -712,7 +775,7 @@ with tab_overview:
         df_3way = build_three_way_comparison_dataframe(explanation_data)
         st.dataframe(df_3way, use_container_width=True, hide_index=True)
     else:
-        st.info("Comparison unavailable because all services in this category are down.")
+        st.info("Comparison unavailable because no SLA-compliant service is currently available in this category.")
 
     st.markdown("---")
 

@@ -53,6 +53,7 @@ class RecommendationResult:
     has_eligible_service: bool
     status_message: str
     sla_config: Optional[SLAConfig] = None
+    status_code: str = "RECOMMENDED"
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert the recommendation result to a summary dictionary.
@@ -61,11 +62,12 @@ class RecommendationResult:
 
         Returns:
             Dictionary with key fields including the selected service's ID, name,
-            QoS score, selection reason, and counts of eligible/excluded services.
+            QoS score, selection reason, status code, and counts of eligible/excluded services.
         """
         service, scores = self.selected_service, self.selected_scores
         return {
             "category": self.category,
+            "status_code": self.status_code,
             "selected_service_id": service.service_id if service else None,
             "selected_service_name": service.name if service else None,
             "qos_score": scores.qos_score if scores else None,
@@ -154,6 +156,7 @@ class RecommendationEngine:
                 has_eligible_service=False,
                 status_message=f"Category '{category}' has no candidate services registered.",
                 sla_config=effective_sla,
+                status_code="NO_CANDIDATES",
             )
 
         # --- Stage 2: Separate unavailable and SLA-violating services ---
@@ -172,7 +175,7 @@ class RecommendationEngine:
         for s in available_candidates:
             violations = validate_service_sla(s, effective_sla)
             if violations:
-                excluded.append((s, f"Excluded: {'; '.join(violations)}."))
+                excluded.append((s, f"Excluded: {'; '.join(violations)}"))
             else:
                 eligible.append(s)
 
@@ -195,6 +198,7 @@ class RecommendationEngine:
                 has_eligible_service=False,
                 status_message=status_msg,
                 sla_config=effective_sla,
+                status_code="NO_SLA_COMPLIANT_SERVICE",
             )
 
         # --- Stage 4: Evaluate and rank ELIGIBLE services only ---

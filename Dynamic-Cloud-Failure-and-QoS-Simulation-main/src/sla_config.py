@@ -5,6 +5,7 @@ and validation rules for strict service eligibility filtering.
 """
 
 from __future__ import annotations
+import math
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 from src.service_registry import CloudService
@@ -15,28 +16,54 @@ class SLAConfig:
     """Configurable SLA constraints for cloud service eligibility.
 
     A candidate service must satisfy ALL constraints to be eligible for selection:
-        1. latency <= max_latency
-        2. availability >= min_availability
-        3. reliability >= min_reliability
+        1. latency <= max_latency (ms)
+        2. availability >= min_availability (%)
+        3. reliability >= min_reliability (%)
 
     Attributes:
         max_latency: Maximum permitted response time in milliseconds.
-                     Services with latency > max_latency violate the SLA.
-        min_availability: Minimum required availability percentage (0–100).
-                          Services with availability < min_availability violate the SLA.
-        min_reliability: Minimum required reliability percentage (0–100).
-                         Services with reliability < min_reliability violate the SLA.
+                     Must be a finite positive number (> 0.0).
+        min_availability: Minimum required availability percentage (0.0–100.0).
+                          Must be a finite percentage in [0.0, 100.0].
+        min_reliability: Minimum required reliability percentage (0.0–100.0).
+                         Must be a finite percentage in [0.0, 100.0].
     """
     max_latency: float = 150.0
     min_availability: float = 98.0
     min_reliability: float = 97.0
 
+    def __post_init__(self) -> None:
+        """Validate threshold values and reject invalid or impossible configurations."""
+        # 1. Validate max_latency
+        if not isinstance(self.max_latency, (int, float)):
+            raise TypeError(f"max_latency must be numeric, got {type(self.max_latency).__name__}.")
+        if not math.isfinite(self.max_latency):
+            raise ValueError(f"max_latency must be a finite number, got {self.max_latency}.")
+        if self.max_latency <= 0.0:
+            raise ValueError(f"max_latency must be strictly positive (> 0.0 ms), got {self.max_latency}.")
+
+        # 2. Validate min_availability
+        if not isinstance(self.min_availability, (int, float)):
+            raise TypeError(f"min_availability must be numeric, got {type(self.min_availability).__name__}.")
+        if not math.isfinite(self.min_availability):
+            raise ValueError(f"min_availability must be a finite number, got {self.min_availability}.")
+        if not (0.0 <= self.min_availability <= 100.0):
+            raise ValueError(f"min_availability must be in [0.0, 100.0]%, got {self.min_availability}.")
+
+        # 3. Validate min_reliability
+        if not isinstance(self.min_reliability, (int, float)):
+            raise TypeError(f"min_reliability must be numeric, got {type(self.min_reliability).__name__}.")
+        if not math.isfinite(self.min_reliability):
+            raise ValueError(f"min_reliability must be a finite number, got {self.min_reliability}.")
+        if not (0.0 <= self.min_reliability <= 100.0):
+            raise ValueError(f"min_reliability must be in [0.0, 100.0]%, got {self.min_reliability}.")
+
     def to_dict(self) -> Dict[str, float]:
         """Convert SLA configuration to dictionary for serialization or UI display."""
         return {
-            "max_latency": self.max_latency,
-            "min_availability": self.min_availability,
-            "min_reliability": self.min_reliability,
+            "max_latency": float(self.max_latency),
+            "min_availability": float(self.min_availability),
+            "min_reliability": float(self.min_reliability),
         }
 
 
@@ -72,6 +99,8 @@ def validate_service_sla(service: CloudService, sla_config: SLAConfig) -> List[s
         - Availability (must not fall below min_availability)
         - Reliability (must not fall below min_reliability)
 
+    Safely handles missing (None), non-finite (NaN, inf), or out-of-range metrics.
+
     Args:
         service: The CloudService instance to evaluate.
         sla_config: The active SLAConfig containing constraint thresholds.
@@ -81,19 +110,25 @@ def validate_service_sla(service: CloudService, sla_config: SLAConfig) -> List[s
     """
     violations: List[str] = []
 
-    if service.latency > sla_config.max_latency:
-        violations.append(
-            f"Latency ({service.latency:.1f}ms) exceeds maximum permitted threshold ({sla_config.max_latency:.1f}ms)"
-        )
+    # 1. Latency validation
+    lat = getattr(service, "latency", None)
+    if lat is None or not isinstance(lat, (int, float)) or not math.isfinite(lat) or lat < 0.0:
+        violations.append(f"Latency SLA violated: metric value ({lat}) is invalid, missing, or non-finite.")
+    elif lat > sla_config.max_latency:
+        violations.append(f"Latency SLA violated: {lat:.1f} ms exceeds maximum {sla_config.max_latency:.1f} ms.")
 
-    if service.availability < sla_config.min_availability:
-        violations.append(
-            f"Availability ({service.availability:.2f}%) is below minimum requirement ({sla_config.min_availability:.2f}%)"
-        )
+    # 2. Availability validation
+    avail = getattr(service, "availability", None)
+    if avail is None or not isinstance(avail, (int, float)) or not math.isfinite(avail) or not (0.0 <= avail <= 100.0):
+        violations.append(f"Availability SLA violated: metric value ({avail}) is invalid, missing, or out of range [0.0, 100.0].")
+    elif avail < sla_config.min_availability:
+        violations.append(f"Availability SLA violated: {avail:.2f}% is below minimum {sla_config.min_availability:.2f}%.")
 
-    if service.reliability < sla_config.min_reliability:
-        violations.append(
-            f"Reliability ({service.reliability:.2f}%) is below minimum requirement ({sla_config.min_reliability:.2f}%)"
-        )
+    # 3. Reliability validation
+    rel = getattr(service, "reliability", None)
+    if rel is None or not isinstance(rel, (int, float)) or not math.isfinite(rel) or not (0.0 <= rel <= 100.0):
+        violations.append(f"Reliability SLA violated: metric value ({rel}) is invalid, missing, or out of range [0.0, 100.0].")
+    elif rel < sla_config.min_reliability:
+        violations.append(f"Reliability SLA violated: {rel:.2f}% is below minimum {sla_config.min_reliability:.2f}%.")
 
     return violations
