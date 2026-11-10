@@ -30,6 +30,7 @@ import plotly.graph_objects as go
 from src.service_registry import get_default_services, compute_reference_bounds, CloudService
 from src.qos_evaluator import QoSEvaluator, validate_and_normalize_weights
 from src.sla_config import SLAConfig, get_default_sla_config, validate_service_sla
+from src.hysteresis_config import HysteresisConfig, DEFAULT_HYSTERESIS_CONFIG
 from src.failure_simulator import FailureSimulator
 from src.recommendation_engine import RecommendationEngine
 from src.analytics import (
@@ -143,6 +144,9 @@ if "simulator" not in st.session_state:
 if "prev_recommended_id" not in st.session_state:
     st.session_state.prev_recommended_id = None
 
+if "last_switch_step" not in st.session_state:
+    st.session_state.last_switch_step = None
+
 if "last_action_summary" not in st.session_state:
     st.session_state.last_action_summary = None
 
@@ -178,12 +182,8 @@ def extract_service_state(svc: CloudService, weights: Dict[str, float]) -> Dict[
         "availability": svc.availability,
         "reliability": svc.reliability,
         "operational_status": svc.operational_status,
-        "health_status": classify_service_health(svc),
         "qos_score": scores.qos_score,
-        "latency_score": scores.latency_score,
-        "cost_score": scores.cost_score,
-        "availability_score": scores.availability_score,
-        "reliability_score": scores.reliability_score,
+        "health_status": classify_service_health(svc),
     }
 
 
@@ -238,6 +238,33 @@ with st.sidebar:
         max_latency=float(sla_max_lat),
         min_availability=float(sla_min_avail),
         min_reliability=float(sla_min_rel),
+    )
+
+    st.markdown("---")
+
+    # --- Hysteresis & Anti-Flapping Configuration ---
+    st.subheader("⚖️ Hysteresis & Anti-Flapping")
+    st.caption("Prevent flapping by requiring a significant score improvement to switch services.")
+
+    h_min_delta = st.slider(
+        "Min QoS Improvement (ΔQoS)",
+        min_value=0.00,
+        max_value=0.50,
+        value=float(DEFAULT_HYSTERESIS_CONFIG.min_qos_delta),
+        step=0.01,
+        help="Minimum score improvement (0.0 to 1.0) required to switch from the currently selected service.",
+    )
+    h_cooldown_steps = st.number_input(
+        "Switching Cooldown (Steps)",
+        min_value=0,
+        max_value=10,
+        value=int(DEFAULT_HYSTERESIS_CONFIG.cooldown_steps),
+        step=1,
+        help="Number of simulation steps that must elapse before another performance-driven switch is allowed.",
+    )
+    active_hysteresis = HysteresisConfig(
+        min_qos_delta=float(h_min_delta),
+        cooldown_steps=int(h_cooldown_steps),
     )
 
     st.markdown("---")
@@ -340,7 +367,20 @@ with st.sidebar:
             weights=normalized_weights,
         )
         # Log to reselection decision audit trail
-        new_rec = engine.recommend(simulator.get_all_services(), selected_category, normalized_weights, prev_choice_id, sla_config=active_sla)
+        current_step_idx = len(history_tracker.snapshots)
+        new_rec = engine.recommend(
+            simulator.get_all_services(),
+            selected_category,
+            normalized_weights,
+            prev_choice_id,
+            sla_config=active_sla,
+            hysteresis_config=active_hysteresis,
+            current_step=current_step_idx,
+            last_switch_step=st.session_state.last_switch_step,
+        )
+        if new_rec.decision_type in ("SWITCHED", "EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION"):
+            st.session_state.last_switch_step = current_step_idx
+
         reselection_audit_trail.record_decision(
             trigger_event=f"Latency Spike (+{spike_val}ms) on {target_service_id}",
             recommendation=new_rec,
@@ -380,7 +420,20 @@ with st.sidebar:
             evaluator=evaluator,
             weights=normalized_weights,
         )
-        new_rec = engine.recommend(simulator.get_all_services(), selected_category, normalized_weights, prev_choice_id, sla_config=active_sla)
+        current_step_idx = len(history_tracker.snapshots)
+        new_rec = engine.recommend(
+            simulator.get_all_services(),
+            selected_category,
+            normalized_weights,
+            prev_choice_id,
+            sla_config=active_sla,
+            hysteresis_config=active_hysteresis,
+            current_step=current_step_idx,
+            last_switch_step=st.session_state.last_switch_step,
+        )
+        if new_rec.decision_type in ("SWITCHED", "EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION"):
+            st.session_state.last_switch_step = current_step_idx
+
         reselection_audit_trail.record_decision(
             trigger_event=f"Outage Triggered on {target_service_id}",
             recommendation=new_rec,
@@ -420,7 +473,20 @@ with st.sidebar:
             evaluator=evaluator,
             weights=normalized_weights,
         )
-        new_rec = engine.recommend(simulator.get_all_services(), selected_category, normalized_weights, prev_choice_id, sla_config=active_sla)
+        current_step_idx = len(history_tracker.snapshots)
+        new_rec = engine.recommend(
+            simulator.get_all_services(),
+            selected_category,
+            normalized_weights,
+            prev_choice_id,
+            sla_config=active_sla,
+            hysteresis_config=active_hysteresis,
+            current_step=current_step_idx,
+            last_switch_step=st.session_state.last_switch_step,
+        )
+        if new_rec.decision_type in ("SWITCHED", "EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION"):
+            st.session_state.last_switch_step = current_step_idx
+
         reselection_audit_trail.record_decision(
             trigger_event=f"Availability Drop (-{drop_val}%) on {target_service_id}",
             recommendation=new_rec,
@@ -460,7 +526,20 @@ with st.sidebar:
             evaluator=evaluator,
             weights=normalized_weights,
         )
-        new_rec = engine.recommend(simulator.get_all_services(), selected_category, normalized_weights, prev_choice_id, sla_config=active_sla)
+        current_step_idx = len(history_tracker.snapshots)
+        new_rec = engine.recommend(
+            simulator.get_all_services(),
+            selected_category,
+            normalized_weights,
+            prev_choice_id,
+            sla_config=active_sla,
+            hysteresis_config=active_hysteresis,
+            current_step=current_step_idx,
+            last_switch_step=st.session_state.last_switch_step,
+        )
+        if new_rec.decision_type in ("SWITCHED", "EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION"):
+            st.session_state.last_switch_step = current_step_idx
+
         reselection_audit_trail.record_decision(
             trigger_event=f"Service Restored on {target_service_id}",
             recommendation=new_rec,
@@ -474,6 +553,7 @@ with st.sidebar:
     if btn_reset:
         simulator.reset_simulation()
         st.session_state.prev_recommended_id = None
+        st.session_state.last_switch_step = None
         st.session_state.last_action_summary = {
             "action": "Reset All",
             "service_id": "ALL",
@@ -492,7 +572,16 @@ with st.sidebar:
             evaluator=evaluator,
             weights=normalized_weights,
         )
-        reset_rec = engine.recommend(simulator.get_all_services(), selected_category, normalized_weights, None, sla_config=active_sla)
+        reset_rec = engine.recommend(
+            simulator.get_all_services(),
+            selected_category,
+            normalized_weights,
+            None,
+            sla_config=active_sla,
+            hysteresis_config=active_hysteresis,
+            current_step=0,
+            last_switch_step=None,
+        )
         reselection_audit_trail.record_decision(
             trigger_event="Reset All Services to Baseline",
             recommendation=reset_rec,
@@ -517,12 +606,16 @@ st.markdown(
 )
 
 # Run recommendation engine on current state
+current_step_idx = len(history_tracker.snapshots)
 recommendation = engine.recommend(
     services=all_services,
     category=selected_category,
     weights=normalized_weights,
     previously_selected_id=st.session_state.prev_recommended_id,
     sla_config=active_sla,
+    hysteresis_config=active_hysteresis,
+    current_step=current_step_idx,
+    last_switch_step=st.session_state.last_switch_step,
 )
 
 # Generate intelligent explainability breakdown
@@ -547,6 +640,8 @@ if len(reselection_audit_trail.records) == 0 and recommendation.has_eligible_ser
     )
 
 if recommendation.selected_service:
+    if st.session_state.prev_recommended_id != recommendation.selected_service.service_id:
+        st.session_state.last_switch_step = current_step_idx
     st.session_state.prev_recommended_id = recommendation.selected_service.service_id
 
 recommended_id = recommendation.selected_service.service_id if recommendation.selected_service else None
@@ -577,7 +672,7 @@ tab_overview, tab_analytics, tab_failure, tab_history = st.tabs([
 # Tab 1: Overview & Intelligent Recommendation Explainability
 # =========================================================================
 with tab_overview:
-    # --- Configured SLA Thresholds Banner ---
+    # --- Configured SLA Thresholds & Hysteresis Banner ---
     st.markdown(
         f"""
         <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-left: 4px solid #2563EB; border-radius: 6px; padding: 10px 16px; margin-bottom: 14px; display: flex; flex-wrap: wrap; gap: 24px; align-items: center;">
@@ -585,6 +680,9 @@ with tab_overview:
             <span style="color: #475569;">Max Latency: <b>&le; {active_sla.max_latency:.1f} ms</b></span>
             <span style="color: #475569;">Min Availability: <b>&ge; {active_sla.min_availability:.2f}%</b></span>
             <span style="color: #475569;">Min Reliability: <b>&ge; {active_sla.min_reliability:.2f}%</b></span>
+            <span style="font-weight: 700; color: #1E293B; margin-left: 8px;">⚖️ Hysteresis:</span>
+            <span style="color: #475569;">Min ΔQoS: <b>&ge; {active_hysteresis.min_qos_delta:.2f}</b></span>
+            <span style="color: #475569;">Cooldown: <b>{active_hysteresis.cooldown_steps} step(s)</b></span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -631,7 +729,7 @@ with tab_overview:
 
     st.markdown("---")
 
-    # --- Phase 1: Recommendation Decision Breakdown ---
+    # --- Recommendation Decision Breakdown ---
     st.subheader("💡 Recommendation Decision Breakdown")
     st.caption("Inspect the active recommendation, reselection trigger, prior choice status, and decision explanation.")
 
@@ -677,15 +775,24 @@ with tab_overview:
     with col_dec2:
         reselect_trig = explanation_data.get("reselection_trigger", "Optimal Score Selection")
         reselect_type = explanation_data.get("reselection_type", "INITIAL")
-        type_icon = "🚨" if reselect_type in ("OUTAGE", "SLA_VIOLATION") else ("⚠️" if reselect_type == "DEGRADATION" else "🏆")
+        type_icon = (
+            "🚨" if reselect_type in ("OUTAGE", "SLA_VIOLATION", "EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION")
+            else ("🛡️" if reselect_type == "RETAINED"
+                  else ("🔄" if reselect_type == "SWITCHED"
+                        else ("⚠️" if reselect_type == "DEGRADATION" else "🏆")))
+        )
+        action_text = (
+            "Service Retained (Anti-Flapping)" if reselect_type == "RETAINED"
+            else ("Service Reselection" if explanation_data.get("is_reselection") else "Optimal Rank #1 Selection")
+        )
         st.markdown(
             f"""
             <div class="metric-card">
                 <div style="font-size:0.82rem; color:#64748B; font-weight:600; text-transform:uppercase;">Decision Trigger</div>
                 <div style="font-size:1.15rem; font-weight:700; color:#1E293B; margin:4px 0;">{type_icon} {reselect_trig}</div>
-                <div>Action: <b>{'Service Reselection' if explanation_data.get('is_reselection') else 'Optimal Rank #1 Selection'}</b></div>
+                <div>Action: <b>{action_text}</b></div>
                 <div style="margin-top:4px; font-size:0.88rem; color:#475569;">
-                    Evaluated across {len(category_services)} services with active SLA thresholds.
+                    Evaluated across {len(category_services)} services with active SLA & Hysteresis thresholds.
                 </div>
             </div>
             """,
@@ -699,12 +806,13 @@ with tab_overview:
             win_sc = recommendation.selected_scores
             win_h = explanation_data.get("winner_health", "HEALTHY")
             w_badge = "🟢 HEALTHY" if win_h == HEALTH_HEALTHY else "🟠 DEGRADED"
+            role_badge = "🛡️ RETAINED" if recommendation.decision_type == "RETAINED" else "⭐ RECOMMENDED"
             st.markdown(
                 f"""
                 <div class="metric-card" style="border-left: 4px solid #2563EB;">
                     <div style="font-size:0.82rem; color:#2563EB; font-weight:600; text-transform:uppercase;">Newly Recommended Winner</div>
                     <div style="font-size:1.15rem; font-weight:700; color:#1E293B; margin:4px 0;">{win.name} ({win.service_id})</div>
-                    <div>Status: <b>{w_badge}</b> | Role: <span class="badge-recommended">⭐ RECOMMENDED</span></div>
+                    <div>Status: <b>{w_badge}</b> | Role: <span class="badge-recommended">{role_badge}</span></div>
                     <div style="margin-top:4px; font-size:0.88rem; color:#1D4ED8; font-weight:600;">
                         Aggregate QoS Score: {win_sc.qos_score:.4f} / 1.0000
                     </div>
@@ -724,6 +832,68 @@ with tab_overview:
                 """,
                 unsafe_allow_html=True,
             )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # --- Phase 2: Hysteresis & Anti-Flapping Status ---
+    st.subheader("⚖️ Hysteresis & Anti-Flapping Status")
+    st.caption("Real-time monitoring of flapping protection, score improvement threshold, and switching cooldown.")
+
+    col_h1, col_h2, col_h3, col_h4 = st.columns(4)
+    with col_h1:
+        st.metric(
+            "Current Selection",
+            recommendation.selected_service.name if recommendation.selected_service else "None",
+            delta=f"QoS: {recommendation.selected_scores.qos_score:.4f}" if recommendation.selected_scores else "N/A",
+        )
+    with col_h2:
+        alt_name = recommendation.best_alternative.name if recommendation.best_alternative else "None"
+        alt_sc = f"QoS: {recommendation.best_alternative_score.qos_score:.4f}" if recommendation.best_alternative_score else "N/A"
+        st.metric("Best Alternative", alt_name, delta=alt_sc)
+    with col_h3:
+        delta_val = recommendation.qos_improvement
+        thresh_val = active_hysteresis.min_qos_delta
+        st.metric(
+            "QoS Margin (ΔQoS)",
+            f"{delta_val:+.4f}",
+            delta=f"Required: ≥ {thresh_val:.4f}",
+            delta_color="normal" if delta_val >= thresh_val else "off",
+        )
+    with col_h4:
+        cd_active = recommendation.cooldown_active
+        cd_status = "🔒 Active (Locked)" if cd_active else "🟢 Inactive (Unlocked)"
+        st.metric(
+            "Cooldown Window",
+            cd_status,
+            delta=f"{active_hysteresis.cooldown_steps} step(s)" if active_hysteresis.cooldown_steps > 0 else "Disabled",
+        )
+
+    # Decision Banner Callout
+    dec_type = recommendation.decision_type
+    if dec_type == "RETAINED":
+        if recommendation.cooldown_active:
+            st.warning(
+                f"🛡️ **Service Retained (Cooldown Active):** Candidate `{alt_name}` offered higher QoS, "
+                f"but switching is locked by cooldown to prevent rapid switching. ({recommendation.decision_reason})"
+            )
+        else:
+            st.info(
+                f"🛡️ **Service Retained (Anti-Flapping Active):** Current service `{recommendation.selected_service.name}` "
+                f"remains compliant. Challenger `{alt_name}` improved QoS by `{recommendation.qos_improvement:+.4f}`, "
+                f"which does not exceed the required hysteresis margin `ΔQoS ≥ {active_hysteresis.min_qos_delta:.4f}`. "
+                f"Flapping has been prevented."
+            )
+    elif dec_type == "SWITCHED":
+        st.success(
+            f"🔄 **Service Reselected (Hysteresis Satisfied):** Switched to `{recommendation.selected_service.name}`. "
+            f"Improvement (`+{recommendation.qos_improvement:.4f}`) exceeded threshold (`≥ {active_hysteresis.min_qos_delta:.4f}`)."
+        )
+    elif dec_type in ("EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION"):
+        emergency_cause = "Outage (UNAVAILABLE)" if dec_type == "EMERGENCY_OUTAGE" else "Hard SLA Constraint Violation"
+        st.error(
+            f"🚨 **Emergency Reselection (Bypassed Hysteresis & Cooldown):** Active service was disqualified due to "
+            f"**{emergency_cause}**. Emergency failover selected `{recommendation.selected_service.name}` immediately."
+        )
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -779,7 +949,7 @@ with tab_overview:
 
     st.markdown("---")
 
-    # --- Phase 2: Candidate Service Comparison & Engine Ranking ---
+    # --- Phase 5: Candidate Service Comparison & Engine Ranking ---
     st.subheader(f"📋 Candidate Services Comparison & Official Ranking ({selected_category})")
     st.caption("Ranked according to the existing recommendation engine's weighted evaluation. Differentiates selected, eligible, and ineligible candidates.")
 
@@ -984,7 +1154,7 @@ with tab_history:
         unsafe_allow_html=True,
     )
 
-    # --- Phase 5: Recommendation Reselection Audit Trail ---
+    # --- Recommendation Reselection Audit Trail ---
     st.subheader("🛡️ Reselection Decision Audit Trail")
     st.caption("Maintains a permanent chronological record of every recommendation and reselection event.")
 

@@ -59,6 +59,11 @@ class ReselectionRecord:
     avail_diff: Optional[float]
     rel_diff: Optional[float]
     cost_diff: Optional[float]
+    # Phase 2 hysteresis tracking fields
+    decision_type: str = "INITIAL"
+    qos_improvement: float = 0.0
+    hysteresis_threshold: float = 0.0
+    cooldown_active: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert record to dictionary for table display or serialization."""
@@ -162,9 +167,9 @@ def generate_detailed_reselection_explanation(
     """Generate comprehensive, transparent explanations for the current recommendation decision.
 
     Analyzes:
-    1. Winner vs previous choice (why it was replaced, outage vs degradation).
-    2. Winner vs runner-up (why the runner-up was beaten).
-    3. Excluded candidate reasons (outage disqualifications).
+    1. Winner vs previous choice (why it was replaced, outage vs degradation vs hysteresis).
+    2. Winner vs runner-up (why the runner-up was beaten or prevented from switching).
+    3. Excluded candidate reasons (outage disqualifications, SLA violations).
     """
     if not recommendation.has_eligible_service or not recommendation.selected_service:
         return {
@@ -177,16 +182,25 @@ def generate_detailed_reselection_explanation(
             "comparison_runner_up": None,
             "runner_up": None,
             "excluded_reasons": [(s.service_id, s.name, reason) for s, reason in recommendation.excluded_services],
+            "decision_type": recommendation.decision_type or "NO_ELIGIBLE_SERVICE",
+            "decision_reason": recommendation.decision_reason or "All candidates ineligible.",
+            "qos_improvement": 0.0,
+            "hysteresis_threshold": recommendation.hysteresis_config.min_qos_delta if recommendation.hysteresis_config else 0.0,
+            "cooldown_active": False,
         }
 
     winner = recommendation.selected_service
     winner_score = recommendation.selected_scores
     winner_health = classify_service_health(winner)
 
-    # Identify runner-up (best alternative candidate)
-    runner_up_pair = recommendation.ranked_eligible[1] if len(recommendation.ranked_eligible) > 1 else None
-    runner_up = runner_up_pair[0] if runner_up_pair else None
-    runner_up_score = runner_up_pair[1] if runner_up_pair else None
+    # Identify runner-up / best alternative candidate
+    if recommendation.best_alternative and recommendation.best_alternative_score:
+        runner_up = recommendation.best_alternative
+        runner_up_score = recommendation.best_alternative_score
+    else:
+        runner_up_pair = recommendation.ranked_eligible[1] if len(recommendation.ranked_eligible) > 1 else None
+        runner_up = runner_up_pair[0] if runner_up_pair else None
+        runner_up_score = runner_up_pair[1] if runner_up_pair else None
 
     # Identify previous service if known
     prev_svc = next((s for s in all_category_services if s.service_id == prev_service_id), None)
@@ -196,25 +210,42 @@ def generate_detailed_reselection_explanation(
     # Reselection trigger detection
     is_reselection = (prev_service_id is not None and prev_service_id != winner.service_id)
     reselection_trigger = "Baseline Optimization"
-    reselection_type = "INITIAL"
+    reselection_type = recommendation.decision_type or ("RESELECTION" if is_reselection else "INITIAL")
 
     details = []
 
-    if is_reselection and prev_svc:
-        if prev_svc.operational_status == "UNAVAILABLE":
+    if recommendation.decision_type == "RETAINED":
+        reselection_type = "RETAINED"
+        reselection_trigger = recommendation.decision_reason or "Anti-Flapping Protection Active (Hysteresis)"
+        details.append(
+            f"🛡️ **Anti-Flapping Protection Active:** Currently selected service `{winner.name}` ({winner.service_id}) "
+            f"was retained. {recommendation.decision_reason}"
+        )
+    elif is_reselection and prev_svc:
+        if prev_svc.operational_status == "UNAVAILABLE" or recommendation.decision_type == "EMERGENCY_OUTAGE":
             reselection_trigger = "Previous Service Outage"
             reselection_type = "OUTAGE"
             details.append(
                 f"🚨 **Disqualification of Prior Choice:** Prior recommended service `{prev_svc.name}` ({prev_svc.service_id}) "
-                f"entered an **UNAVAILABLE** state. Under fail-safe eligibility rules, it was immediately excluded from consideration."
+                f"entered an **UNAVAILABLE** state. Under fail-safe eligibility rules, emergency reselection immediately selected `{winner.name}` "
+                f"(bypassing hysteresis and cooldown)."
             )
-        elif recommendation.sla_config and (prev_violations := validate_service_sla(prev_svc, recommendation.sla_config)):
+        elif (recommendation.sla_config and validate_service_sla(prev_svc, recommendation.sla_config)) or recommendation.decision_type == "EMERGENCY_SLA_VIOLATION":
             reselection_trigger = "Prior Service SLA Violation"
             reselection_type = "SLA_VIOLATION"
-            violations_text = "; ".join(prev_violations)
+            prev_violations = validate_service_sla(prev_svc, recommendation.sla_config) if recommendation.sla_config else []
+            violations_text = "; ".join(prev_violations) if prev_violations else "SLA threshold violation"
             details.append(
                 f"🚨 **SLA Violation Disqualification:** Prior recommended service `{prev_svc.name}` ({prev_svc.service_id}) "
-                f"violated configured SLA constraints ({violations_text}). Under strict eligibility rules, it was disqualified from recommendation."
+                f"violated configured SLA constraints ({violations_text}). Emergency reselection immediately selected `{winner.name}` "
+                f"(bypassing hysteresis and cooldown)."
+            )
+        elif recommendation.decision_type == "SWITCHED":
+            reselection_trigger = "QoS Improvement Exceeded Hysteresis Threshold"
+            reselection_type = "SWITCHED"
+            details.append(
+                f"🔄 **Hysteresis Threshold Exceeded:** Switched from `{prev_svc.name}` ({prev_svc.service_id}) "
+                f"to `{winner.name}` ({winner.service_id}). {recommendation.decision_reason}"
             )
         elif prev_health == HEALTH_DEGRADED:
             reselection_trigger = "Prior Service QoS Degradation"
@@ -255,10 +286,17 @@ def generate_detailed_reselection_explanation(
             strengths.append(f"${runner_up.cost - winner.cost:.3f} lower cost")
 
         factor_str = ", ".join(strengths) if strengths else "balanced normalized weighted score"
-        details.append(
-            f"⚔️ **Margin over Best Alternative:** Outperformed runner-up `{runner_up.name}` ({runner_up.service_id}) "
-            f"by `+{d_score:.4f}` in aggregate QoS score. Key differentiators: {factor_str}."
-        )
+        if recommendation.decision_type == "RETAINED" and d_score < 0:
+            details.append(
+                f"⚖️ **Anti-Flapping Margin:** Best alternative candidate `{runner_up.name}` ({runner_up.service_id}) "
+                f"leads by `{abs(d_score):.4f}` score, but switch was prevented by hysteresis threshold "
+                f"(`ΔQoS required >= {recommendation.hysteresis_config.min_qos_delta if recommendation.hysteresis_config else 0.05:.4f}`)."
+            )
+        else:
+            details.append(
+                f"⚔️ **Margin over Best Alternative:** Aggregate QoS score difference is `+{d_score:.4f}` vs "
+                f"`{runner_up.name}` ({runner_up.service_id}). Key differentiators: {factor_str}."
+            )
 
     # Comparison against previous service
     comparison_prev = None
@@ -275,10 +313,12 @@ def generate_detailed_reselection_explanation(
             "reason": reason,
         })
 
-    headline = (
-        f"Reselection Triggered: {reselection_trigger}" if is_reselection
-        else f"Optimal Service: {winner.name} ({winner.service_id})"
-    )
+    if recommendation.decision_type == "RETAINED":
+        headline = f"Service Retained: {winner.name} (Anti-Flapping Active)"
+    elif is_reselection:
+        headline = f"Reselection Triggered: {reselection_trigger}"
+    else:
+        headline = f"Optimal Service: {winner.name} ({winner.service_id})"
 
     summary_text = (
         f"Recommended '{winner.name}' ({winner.service_id}) with aggregate QoS score of {winner_score.qos_score:.4f}."
@@ -291,6 +331,11 @@ def generate_detailed_reselection_explanation(
         "reselection_trigger": reselection_trigger,
         "reselection_type": reselection_type,
         "is_reselection": is_reselection,
+        "decision_type": recommendation.decision_type,
+        "decision_reason": recommendation.decision_reason,
+        "qos_improvement": recommendation.qos_improvement,
+        "hysteresis_threshold": recommendation.hysteresis_config.min_qos_delta if recommendation.hysteresis_config else 0.0,
+        "cooldown_active": recommendation.cooldown_active,
         "winner": winner,
         "winner_score": winner_score,
         "winner_health": winner_health,
@@ -304,7 +349,6 @@ def generate_detailed_reselection_explanation(
         "details": details,
         "excluded_services": excluded_reasons,
     }
-
 
 
 def build_three_way_comparison_dataframe(
@@ -329,14 +373,25 @@ def build_three_way_comparison_dataframe(
     comp_prev = explanation_data.get("comparison_prev")
     comp_runner = explanation_data.get("comparison_runner_up")
 
+    decision_type = explanation_data.get("decision_type", "")
+    if decision_type == "RETAINED":
+        winner_vs_prior = "Retained via Anti-Flapping Hysteresis"
+        winner_vs_runner = f"Challenger ΔQoS: {explanation_data.get('qos_improvement', 0.0):+.4f} (Below Threshold)"
+    else:
+        winner_vs_prior = (
+            ("Retained" if prev and prev.service_id == winner.service_id else ("Prior is UNAVAILABLE" if prev and prev.operational_status == "UNAVAILABLE" else "Operational Change"))
+            if prev else "Baseline"
+        )
+        winner_vs_runner = "Both Eligible" if runner_up else "N/A"
+
     rows = [
         {
             "QoS Metric": "Health & Status",
             "Prior Service": f"{prev_health} ({prev.operational_status})" if prev else "N/A",
             "Newly Selected Winner": f"{winner_health} ({winner.operational_status})",
             "Best Alternative (Runner-Up)": f"{runner_up_health} ({runner_up.operational_status})" if runner_up else "N/A",
-            "Winner vs Prior Choice": ("Retained" if prev and prev.service_id == winner.service_id else ("Prior is UNAVAILABLE" if prev and prev.operational_status == "UNAVAILABLE" else "Operational Change")) if prev else "Baseline",
-            "Winner vs Runner-Up": "Both Eligible" if runner_up else "N/A",
+            "Winner vs Prior Choice": winner_vs_prior,
+            "Winner vs Runner-Up": winner_vs_runner,
         },
         {
             "QoS Metric": "Aggregate QoS Score",
@@ -400,8 +455,24 @@ def build_candidate_comparison_table(
     # First add ranked eligible candidates in engine order
     for rank_idx, (s, scores) in enumerate(recommendation.ranked_eligible, start=1):
         is_selected = (s.service_id == rec_id)
-        role = "⭐ Selected Service" if is_selected else ("🥈 Best Alternative" if rank_idx == 2 else "Eligible Alternative")
+        is_best_alt = (recommendation.best_alternative and s.service_id == recommendation.best_alternative.service_id) or (not recommendation.best_alternative and rank_idx == 2)
+        role = "⭐ Selected Service" if is_selected else ("🥈 Best Alternative" if is_best_alt else "Eligible Alternative")
         health = classify_service_health(s)
+
+        if is_selected:
+            if recommendation.decision_type == "RETAINED":
+                notes = "Selected (Retained via Hysteresis)"
+            elif recommendation.decision_type in ("SWITCHED", "EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION"):
+                notes = f"Selected ({recommendation.decision_type})"
+            else:
+                notes = "Highest eligible score"
+        elif is_best_alt:
+            if recommendation.decision_type == "RETAINED":
+                notes = f"Leading candidate (ΔQoS +{recommendation.qos_improvement:.4f} below threshold)"
+            else:
+                notes = "Best alternative candidate"
+        else:
+            notes = f"Rank #{rank_idx} candidate"
 
         rows.append({
             "Rank": f"#{rank_idx}",
@@ -415,7 +486,7 @@ def build_candidate_comparison_table(
             "Cost ($)": f"${s.cost:.3f}",
             "Availability (%)": f"{s.availability:.2f}%",
             "Reliability (%)": f"{s.reliability:.2f}%",
-            "Decision Notes": "Highest eligible score" if is_selected else f"Rank #{rank_idx} candidate",
+            "Decision Notes": notes,
         })
 
     # Next append excluded services
@@ -489,6 +560,12 @@ class ReselectionAuditTrail:
             all_category_services=all_category_services,
         )
 
+        hysteresis_thresh = (
+            recommendation.hysteresis_config.min_qos_delta
+            if recommendation.hysteresis_config
+            else 0.0
+        )
+
         rec = ReselectionRecord(
             sequence_number=len(self.records) + 1,
             timestamp=timestamp or datetime.now().strftime("%H:%M:%S"),
@@ -511,6 +588,10 @@ class ReselectionAuditTrail:
             avail_diff=avail_diff,
             rel_diff=rel_diff,
             cost_diff=cost_diff,
+            decision_type=recommendation.decision_type or "INITIAL",
+            qos_improvement=recommendation.qos_improvement,
+            hysteresis_threshold=hysteresis_thresh,
+            cooldown_active=recommendation.cooldown_active,
         )
         self.records.append(rec)
         return rec
@@ -531,11 +612,15 @@ class ReselectionAuditTrail:
                 "sequence_number": "Seq #",
                 "timestamp": "Timestamp",
                 "trigger_event": "Trigger Event",
+                "decision_type": "Decision Type",
                 "prev_service_id": "Previous Service",
                 "new_service_id": "Selected Service",
                 "new_qos_score": "QoS Score",
                 "new_health_status": "Health Status",
                 "runner_up_id": "Runner-Up",
+                "qos_improvement": "Δ QoS",
+                "hysteresis_threshold": "Threshold",
+                "cooldown_active": "Cooldown Active",
                 "reselection_reason": "Decision Trigger",
                 "detailed_explanation": "Decision Explanation",
             },
