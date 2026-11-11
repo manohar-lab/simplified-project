@@ -10,6 +10,7 @@ without modifying any underlying scoring formulas, weights, or simulation rules.
 
 from __future__ import annotations
 import copy
+import math
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
@@ -21,6 +22,7 @@ from plotly.subplots import make_subplots
 
 from src.service_registry import CloudService
 from src.qos_evaluator import MetricScores, QoSEvaluator, METRICS
+from src.sla_config import validate_service_sla
 
 
 # =========================================================================
@@ -29,36 +31,78 @@ from src.qos_evaluator import MetricScores, QoSEvaluator, METRICS
 HEALTH_HEALTHY = "HEALTHY"
 HEALTH_DEGRADED = "DEGRADED"
 HEALTH_UNAVAILABLE = "UNAVAILABLE"
+HEALTH_RECOVERED = "RECOVERED"
 
 STATUS_COLORS = {
     "Recommended": "#2563EB",          # Royal Blue
     "Healthy": "#10B981",              # Emerald Green
+    "Recovered": "#06B6D4",            # Cyan / Restored Healthy
     "Degraded": "#F59E0B",             # Amber / Orange
     "Unavailable": "#EF4444",          # Crimson Red
 }
 
 
-def classify_service_health(service: CloudService) -> str:
+def _metrics_are_valid(service: CloudService) -> bool:
+    """Safely check that all service QoS metrics are finite and within physically valid bounds."""
+    lat = getattr(service, "latency", None)
+    cost = getattr(service, "cost", None)
+    avail = getattr(service, "availability", None)
+    rel = getattr(service, "reliability", None)
+
+    for val in (lat, cost, avail, rel):
+        if val is None or isinstance(val, bool) or not isinstance(val, (int, float)) or not math.isfinite(val):
+            return False
+
+    if lat < 0.0 or cost < 0.0:
+        return False
+    if not (0.0 <= avail <= 100.0) or not (0.0 <= rel <= 100.0):
+        return False
+    return True
+
+
+def classify_service_health(
+    service: CloudService,
+    sla_config: Optional[Any] = None,
+    previous_health: Optional[str] = None,
+) -> str:
     """Determine the health status of a candidate service.
 
+    Canonical health classification shared across analytics and periodic monitoring.
+
     Classification rules:
-    - UNAVAILABLE: operational_status is "UNAVAILABLE" (outage).
-    - DEGRADED: operational_status is "AVAILABLE" but one or more metrics
-      are degraded relative to the service's baseline (higher latency,
-      lower availability, lower reliability, or higher cost).
-    - HEALTHY: operational_status is "AVAILABLE" and all metrics are at or
-      better than baseline values.
+    - UNAVAILABLE: operational_status is "UNAVAILABLE" (or non-"AVAILABLE").
+    - DEGRADED: operational_status is "AVAILABLE" AND any of:
+        1. Any QoS metric is invalid, missing, non-finite, or out of valid bounds.
+        2. sla_config is provided and the service violates one or more SLA constraints.
+        3. One or more metrics are degraded relative to the service's baseline
+           (higher latency, lower availability, lower reliability, or higher cost).
+    - RECOVERED: Service is healthy and SLA-compliant after previously being in
+      DEGRADED or UNAVAILABLE state.
+    - HEALTHY: operational_status is "AVAILABLE", metrics are valid and SLA-compliant,
+      and all metrics are at or better than baseline values.
 
     Args:
         service: The CloudService instance to evaluate.
+        sla_config: Optional active SLAConfig to ensure classification aligns with SLA eligibility.
+        previous_health: Optional prior health status to detect recovery transitions.
 
     Returns:
-        One of "HEALTHY", "DEGRADED", or "UNAVAILABLE".
+        One of "HEALTHY", "DEGRADED", "UNAVAILABLE", or "RECOVERED".
     """
-    if service.operational_status == "UNAVAILABLE":
+    status = getattr(service, "operational_status", "UNAVAILABLE")
+    if status == "UNAVAILABLE" or status != "AVAILABLE":
         return HEALTH_UNAVAILABLE
 
-    b = service.baseline
+    if not _metrics_are_valid(service):
+        return HEALTH_DEGRADED
+
+    # Check hard SLA constraints if provided
+    if sla_config is not None:
+        violations = validate_service_sla(service, sla_config)
+        if violations:
+            return HEALTH_DEGRADED
+
+    b = getattr(service, "baseline", {}) or {}
     # Compare current metrics against immutable baseline values
     is_degraded = (
         service.latency > b.get("latency", service.latency)
@@ -66,7 +110,13 @@ def classify_service_health(service: CloudService) -> str:
         or service.reliability < b.get("reliability", service.reliability)
         or service.cost > b.get("cost", service.cost)
     )
-    return HEALTH_DEGRADED if is_degraded else HEALTH_HEALTHY
+    if is_degraded:
+        return HEALTH_DEGRADED
+
+    if previous_health in (HEALTH_DEGRADED, HEALTH_UNAVAILABLE):
+        return HEALTH_RECOVERED
+
+    return HEALTH_HEALTHY
 
 
 # =========================================================================

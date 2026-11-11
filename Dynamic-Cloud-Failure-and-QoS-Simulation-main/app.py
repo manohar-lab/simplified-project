@@ -18,6 +18,8 @@ Run this file with:  streamlit run app.py
 
 from __future__ import annotations
 import copy
+import html
+import time
 from typing import Dict, Any, List
 
 # --- Third-party imports ---
@@ -31,6 +33,8 @@ from src.service_registry import get_default_services, compute_reference_bounds,
 from src.qos_evaluator import QoSEvaluator, validate_and_normalize_weights
 from src.sla_config import SLAConfig, get_default_sla_config, validate_service_sla
 from src.hysteresis_config import HysteresisConfig, DEFAULT_HYSTERESIS_CONFIG
+from src.monitoring_config import MonitoringConfig, DEFAULT_MONITORING_CONFIG
+from src.monitoring_engine import MonitoringEngine, STATUS_ACTIVE
 from src.failure_simulator import FailureSimulator
 from src.recommendation_engine import RecommendationEngine
 from src.analytics import (
@@ -39,6 +43,7 @@ from src.analytics import (
     HEALTH_HEALTHY,
     HEALTH_DEGRADED,
     HEALTH_UNAVAILABLE,
+    HEALTH_RECOVERED,
     build_qos_comparison_chart,
     build_qos_radar_chart,
     build_individual_metric_charts,
@@ -168,6 +173,16 @@ reference_bounds = compute_reference_bounds(all_services)
 evaluator = QoSEvaluator(reference_bounds)
 engine = RecommendationEngine(evaluator)
 
+if "monitoring_engine" not in st.session_state:
+    st.session_state.monitoring_engine = MonitoringEngine(
+        evaluator=evaluator,
+        recommendation_engine=engine,
+        config=DEFAULT_MONITORING_CONFIG,
+    )
+
+monitoring_engine: MonitoringEngine = st.session_state.monitoring_engine
+st.session_state["_is_full_app_render"] = True
+
 
 # Helper to snapshot state for failure analysis before/after comparison
 def extract_service_state(svc: CloudService, weights: Dict[str, float]) -> Dict[str, Any]:
@@ -266,6 +281,41 @@ with st.sidebar:
         min_qos_delta=float(h_min_delta),
         cooldown_steps=int(h_cooldown_steps),
     )
+
+    st.markdown("---")
+
+    # --- Periodic Automatic Monitoring Configuration ---
+    st.subheader("📡 Periodic Automatic Monitoring")
+    st.caption("Automatically reassess service health, SLA compliance, and failover status.")
+
+    m_enabled = st.toggle(
+        "Enable Automatic Monitoring",
+        value=bool(monitoring_engine.is_active),
+        help="Toggle periodic automatic health reassessment (ACTIVE / PAUSED).",
+    )
+    m_interval = st.slider(
+        "Monitoring Interval (seconds)",
+        min_value=2.0,
+        max_value=60.0,
+        value=float(monitoring_engine.config.interval_seconds),
+        step=1.0,
+        help="Frequency at which registered services are automatically reassessed.",
+    )
+
+    if m_enabled and not monitoring_engine.is_active:
+        monitoring_engine.resume()
+    elif not m_enabled and monitoring_engine.is_active:
+        monitoring_engine.pause()
+
+    active_monitoring_config = MonitoringConfig(
+        interval_seconds=float(m_interval),
+        enabled=bool(m_enabled),
+    )
+    if (
+        active_monitoring_config.interval_seconds != monitoring_engine.config.interval_seconds
+        or active_monitoring_config.enabled != monitoring_engine.config.enabled
+    ):
+        monitoring_engine.update_config(active_monitoring_config)
 
     st.markdown("---")
 
@@ -389,6 +439,7 @@ with st.sidebar:
             prev_service_id=prev_choice_id,
             all_category_services=simulator.get_services_by_category(selected_category),
         )
+        st.session_state["_recent_button_action"] = True
         st.rerun()
 
     if btn_outage and target_service_id:
@@ -442,6 +493,7 @@ with st.sidebar:
             prev_service_id=prev_choice_id,
             all_category_services=simulator.get_services_by_category(selected_category),
         )
+        st.session_state["_recent_button_action"] = True
         st.rerun()
 
     if btn_drop and target_service_id:
@@ -495,6 +547,7 @@ with st.sidebar:
             prev_service_id=prev_choice_id,
             all_category_services=simulator.get_services_by_category(selected_category),
         )
+        st.session_state["_recent_button_action"] = True
         st.rerun()
 
     if btn_restore and target_service_id:
@@ -548,10 +601,12 @@ with st.sidebar:
             prev_service_id=prev_choice_id,
             all_category_services=simulator.get_services_by_category(selected_category),
         )
+        st.session_state["_recent_button_action"] = True
         st.rerun()
 
     if btn_reset:
         simulator.reset_simulation()
+        monitoring_engine.reset(clear_events=False)
         st.session_state.prev_recommended_id = None
         st.session_state.last_switch_step = None
         st.session_state.last_action_summary = {
@@ -590,6 +645,7 @@ with st.sidebar:
             prev_service_id=None,
             all_category_services=simulator.get_services_by_category(selected_category),
         )
+        st.session_state["_recent_button_action"] = True
         st.rerun()
 
 
@@ -607,11 +663,15 @@ st.markdown(
 
 # Run recommendation engine on current state
 current_step_idx = len(history_tracker.snapshots)
+raw_prev_id = st.session_state.prev_recommended_id
+category_service_ids = {s.service_id for s in category_services}
+old_prev_id = raw_prev_id if (raw_prev_id is not None and raw_prev_id in category_service_ids) else None
+
 recommendation = engine.recommend(
     services=all_services,
     category=selected_category,
     weights=normalized_weights,
-    previously_selected_id=st.session_state.prev_recommended_id,
+    previously_selected_id=old_prev_id,
     sla_config=active_sla,
     hysteresis_config=active_hysteresis,
     current_step=current_step_idx,
@@ -623,10 +683,12 @@ explanation_data = generate_detailed_reselection_explanation(
     recommendation=recommendation,
     evaluator=evaluator,
     weights=normalized_weights,
-    prev_service_id=st.session_state.prev_recommended_id,
+    prev_service_id=old_prev_id,
     all_category_services=category_services,
     last_action=st.session_state.last_action_detail,
 )
+
+was_button_action = bool(st.session_state.pop("_recent_button_action", False))
 
 # Initialize baseline decision in audit trail if empty
 if len(reselection_audit_trail.records) == 0 and recommendation.has_eligible_service:
@@ -639,12 +701,40 @@ if len(reselection_audit_trail.records) == 0 and recommendation.has_eligible_ser
         all_category_services=category_services,
     )
 
-if recommendation.selected_service:
-    if st.session_state.prev_recommended_id != recommendation.selected_service.service_id:
-        st.session_state.last_switch_step = current_step_idx
-    st.session_state.prev_recommended_id = recommendation.selected_service.service_id
-
 recommended_id = recommendation.selected_service.service_id if recommendation.selected_service else None
+if recommended_id is not None:
+    if old_prev_id != recommended_id:
+        st.session_state.last_switch_step = current_step_idx
+        if (
+            not was_button_action
+            and len(reselection_audit_trail.records) > 0
+            and old_prev_id is not None
+        ):
+            reselection_audit_trail.record_decision(
+                trigger_event="Configuration / Policy Re-evaluation",
+                recommendation=recommendation,
+                evaluator=evaluator,
+                weights=normalized_weights,
+                prev_service_id=old_prev_id,
+                all_category_services=category_services,
+            )
+    st.session_state.prev_recommended_id = recommended_id
+else:
+    st.session_state.prev_recommended_id = None
+
+# Keep monitoring engine synchronized with current parameters & active choice
+monitoring_engine.evaluator = evaluator
+monitoring_engine.recommendation_engine = engine
+monitoring_engine.sync_external_selection(
+    category=selected_category,
+    selected_id=recommended_id,
+    switch_step=st.session_state.last_switch_step,
+)
+
+st.session_state["active_category"] = selected_category
+st.session_state["active_sla"] = active_sla
+st.session_state["active_hysteresis"] = active_hysteresis
+st.session_state["active_weights"] = normalized_weights
 
 
 # Action banner if recent action occurred
@@ -655,6 +745,176 @@ if st.session_state.last_action_summary:
         f"*(Target: `{summary['service_id']} - {summary['service_name']}` | "
         f"Before: `{summary['before']}` ➜ After: `{summary['after']}`)*"
     )
+
+
+# =========================================================================
+# Periodic Automatic Service Monitoring Fragment (Phase 3)
+# =========================================================================
+def _periodic_monitoring_body() -> None:
+    """Execute one periodic health reassessment cycle and render live monitoring telemetry."""
+    mon: MonitoringEngine = st.session_state.monitoring_engine
+    sim: FailureSimulator = st.session_state.simulator
+    hist: HistoryTracker = st.session_state.history_tracker
+    audit: ReselectionAuditTrail = st.session_state.reselection_audit_trail
+    eval_obj: QoSEvaluator = mon.evaluator
+
+    cat = st.session_state.get("active_category")
+    sla = st.session_state.get("active_sla")
+    hyst = st.session_state.get("active_hysteresis")
+    wts = st.session_state.get("active_weights")
+    was_full_app_render = bool(st.session_state.pop("_is_full_app_render", False))
+
+    st.markdown("### 📡 Periodic Service Monitoring Dashboard")
+    hdr_col1, hdr_col2 = st.columns([0.80, 0.20])
+    with hdr_col2:
+        manual_check = st.button(
+            "🔍 Inspect Now",
+            key="btn_monitoring_inspect_now",
+            use_container_width=True,
+            help="Immediately run one monitoring assessment cycle without waiting for the next timer tick.",
+        )
+
+    if manual_check or mon.is_active:
+        cycle_res = mon.run_cycle(
+            services=sim.get_all_services(),
+            category=cat,
+            weights=wts,
+            sla_config=sla,
+            hysteresis_config=hyst,
+            previously_selected_id=st.session_state.prev_recommended_id,
+            current_step=len(hist.snapshots),
+            last_switch_step=st.session_state.last_switch_step,
+            force=bool(manual_check),
+            respect_interval=False,
+        )
+    else:
+        cycle_res = mon.last_cycle_result
+
+    # Trigger full dashboard rerun when background tick or manual inspect detects changes
+    if (
+        not was_full_app_render
+        and cycle_res is not None
+        and cycle_res.status not in ("SKIPPED_OVERLAP", "SKIPPED_INTERVAL")
+        and (cycle_res.reselection_triggered or cycle_res.changes_detected)
+    ):
+        if cycle_res.reselection_triggered and cycle_res.recommendation_result is not None:
+            prev_id = st.session_state.prev_recommended_id
+            new_id = cycle_res.selected_service_id
+            cat_svcs = sim.get_services_by_category(cat)
+            rec_res = cycle_res.recommendation_result
+
+            if new_id is not None:
+                st.session_state.last_switch_step = len(hist.snapshots)
+            st.session_state.prev_recommended_id = new_id
+
+            hist.record_snapshot(
+                action="Periodic Monitor Reselection",
+                target_service_id=new_id or "NONE",
+                target_service_name=cycle_res.selected_service_name or "None",
+                message=rec_res.decision_reason,
+                services=sim.get_all_services(),
+                evaluator=eval_obj,
+                weights=wts,
+            )
+            audit.record_decision(
+                trigger_event=f"Periodic Monitoring Cycle #{cycle_res.cycle_number}",
+                recommendation=rec_res,
+                evaluator=eval_obj,
+                weights=wts,
+                prev_service_id=prev_id,
+                all_category_services=cat_svcs,
+            )
+            st.session_state.last_action_summary = {
+                "action": "Automatic Periodic Reselection",
+                "service_id": new_id or "NONE",
+                "service_name": cycle_res.selected_service_name or "No Eligible Service",
+                "before": prev_id or "None",
+                "after": new_id or "NONE",
+                "message": rec_res.decision_reason,
+            }
+        st.rerun()
+
+    mon_summary = mon.get_status_summary()
+    is_active_now = (mon_summary["status"] == STATUS_ACTIVE)
+    badge_bg = "#DCFCE7" if is_active_now else "#FEF3C7"
+    badge_fg = "#166534" if is_active_now else "#92400E"
+    badge_icon = "🟢" if is_active_now else "⏸️"
+
+    with hdr_col1:
+        st.markdown(
+            f"""
+            <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 8px 14px; display: flex; flex-wrap: wrap; gap: 18px; align-items: center;">
+                <span style="background-color: {badge_bg}; color: {badge_fg}; font-weight: 700; padding: 3px 10px; border-radius: 999px; font-size: 0.85rem;">
+                    {badge_icon} {html.escape(mon_summary['status'])}
+                </span>
+                <span style="color: #475569; font-size: 0.9rem;">Category: <b>{html.escape(str(cat))}</b></span>
+                <span style="color: #475569; font-size: 0.9rem;">Interval: <b>{mon_summary['interval_seconds']:.0f}s</b></span>
+                <span style="color: #475569; font-size: 0.9rem;">Cycles Executed: <b>#{mon_summary['cycle_count']}</b></span>
+                <span style="color: #475569; font-size: 0.9rem;">Last Checked: <b>{html.escape(str(mon_summary['last_run_timestamp']))}</b></span>
+                <span style="color: #475569; font-size: 0.9rem;">Next Expected Check: <b>{html.escape(str(mon_summary['next_expected_timestamp']))}</b></span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    mcol1, mcol2, mcol3, mcol4, mcol5, mcol6 = st.columns(6)
+    mcol1.metric("Monitored Services", mon_summary["total_services"])
+    mcol2.metric("Healthy Services", mon_summary["healthy_count"])
+    mcol3.metric("Degraded Services", mon_summary["degraded_count"])
+    mcol4.metric("Unavailable Services", mon_summary["unavailable_count"])
+    mcol5.metric("SLA Violations", mon_summary["sla_violating_count"])
+
+    active_svc_display = mon_summary["selected_service_id"] or "NONE"
+    if cycle_res is not None and cycle_res.selected_service_name:
+        active_svc_help = f"Active Service: {cycle_res.selected_service_id} - {cycle_res.selected_service_name}"
+    else:
+        active_svc_help = "Currently selected service in monitored category"
+    mcol6.metric("Active Selected", active_svc_display, help=active_svc_help)
+
+    recovered_ids = (
+        [
+            sid for sid, snap in cycle_res.service_snapshots.items()
+            if snap.health_state == HEALTH_RECOVERED
+        ]
+        if cycle_res is not None
+        else []
+    )
+
+    info_col1, info_col2 = st.columns(2)
+    with info_col1:
+        if cycle_res is not None and cycle_res.selected_service_id is None:
+            st.error("🚫 **Automatic Reselection Status:** No eligible SLA-compliant service currently available.")
+        elif cycle_res is not None and cycle_res.reselection_triggered:
+            st.warning(
+                f"🔄 **Automatic Reselection Triggered:** Switched active service to "
+                f"`{cycle_res.selected_service_id} - {cycle_res.selected_service_name}`."
+            )
+        elif recovered_ids:
+            st.info(
+                f"💚 **Recovery Observed:** {', '.join(f'`{rid}`' for rid in recovered_ids)} restored to SLA compliance. "
+                f"Active selection: `{active_svc_display}`."
+            )
+        else:
+            st.success(
+                f"✅ **Automatic Reselection Status:** Stable on `{active_svc_display}` (no unscheduled switch required)."
+            )
+
+    with info_col2:
+        latest_evt = mon_summary.get("latest_event")
+        if latest_evt:
+            st.info(
+                f"🧾 **Latest Event (`{latest_evt['event_type']}` @ {latest_evt['timestamp']}):** "
+                f"{latest_evt['reason']}"
+            )
+        else:
+            st.info("🧾 **Latest Event:** No monitoring events recorded yet.")
+
+
+st.fragment(
+    _periodic_monitoring_body,
+    run_every=active_monitoring_config.interval_seconds if monitoring_engine.is_active else None,
+    key="periodic_monitor_panel",
+)()
 
 
 # =========================================================================
@@ -1227,6 +1487,35 @@ with tab_history:
         target_name = df_hist.iloc[0]["name"]
         fig_trend = build_history_timeline_chart(df_hist, hist_service_id, target_name)
         st.plotly_chart(fig_trend, use_container_width=True)
+
+    st.markdown("---")
+
+    # Periodic Monitoring Event History (Phase 3)
+    st.subheader("📡 Periodic Monitoring Event History")
+    st.caption(
+        "Append-only deduplicated log of monitoring lifecycle events, health transitions, SLA detections, "
+        "outages, recoveries, and automatic reselections."
+    )
+    mon_evt_col1, mon_evt_col2 = st.columns([0.75, 0.25])
+    with mon_evt_col1:
+        st.caption(
+            f"Recorded Monitoring Events: **{len(monitoring_engine.event_history)}** event(s) | "
+            f"Engine Status: **{monitoring_engine.status_label}**"
+        )
+    with mon_evt_col2:
+        if st.button("🗑️ Clear Monitoring Events", key="btn_clear_monitoring_events", use_container_width=True):
+            monitoring_engine.clear_events()
+            st.rerun()
+
+    df_mon_events = monitoring_engine.get_events_dataframe()
+    if not df_mon_events.empty:
+        st.dataframe(
+            df_mon_events.iloc[::-1].reset_index(drop=True),
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.write("No monitoring events recorded yet.")
 
     st.markdown("---")
 
