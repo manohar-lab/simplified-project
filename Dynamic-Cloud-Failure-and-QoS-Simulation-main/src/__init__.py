@@ -1,6 +1,7 @@
 """Dynamic Cloud Failure Detection and QoS-Aware Service Reselection.
 
-Phase 3: SLA Constraint Enforcement, Anti-Flapping Hysteresis, and Periodic Automatic Monitoring.
+Phase 4: SLA Constraint Enforcement, Anti-Flapping Hysteresis, Periodic Monitoring,
+and Validated Manual Service Override.
 
 This package contains the core modules for the project:
   - service_registry   : Defines synthetic cloud services and their baseline QoS metrics.
@@ -9,10 +10,11 @@ This package contains the core modules for the project:
   - hysteresis_config  : Configurable hysteresis margin and anti-flapping switching rules.
   - monitoring_config  : Configurable periodic monitoring interval and retention settings.
   - monitoring_engine  : Automated periodic health reassessment and event logging engine.
+  - override_manager   : Operating mode management and strict manual override validation.
   - failure_simulator  : Injects failures (latency spikes, outages, availability drops)
                          and restores services to baseline.
   - recommendation_engine: Selects the best eligible service based on SLA compliance,
-                           hysteresis anti-flapping, and QoS scores, explaining decisions.
+                           hysteresis anti-flapping, operating mode, and QoS scores.
 """
 
 from src.sla_config import (
@@ -42,4 +44,18 @@ from src.monitoring_engine import (
     ServiceHealthSnapshot,
 )
 
-__version__ = "1.3.0"
+from src.override_manager import (
+    MODE_AUTOMATIC,
+    MODE_MANUAL,
+    OVERRIDE_EVENT_ACTIVATED,
+    OVERRIDE_EVENT_CLEARED,
+    OVERRIDE_EVENT_REJECTED,
+    OVERRIDE_EVENT_EMERGENCY_TERMINATED,
+    OVERRIDE_EVENT_AUTO_RESTORED,
+    ManualOverrideManager,
+    OverrideValidationResult,
+    OverrideTransitionEvent,
+    validate_manual_override_request,
+)
+
+__version__ = "1.4.0"

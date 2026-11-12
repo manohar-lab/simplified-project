@@ -26,6 +26,7 @@ from src.qos_evaluator import MetricScores, QoSEvaluator
 from src.service_registry import CloudService
 from src.sla_config import SLAConfig, get_default_sla_config, validate_service_sla
 from src.hysteresis_config import HysteresisConfig, DEFAULT_HYSTERESIS_CONFIG, check_cooldown_active
+from src.override_manager import MODE_AUTOMATIC, MODE_MANUAL, validate_manual_override_request
 
 
 @dataclass
@@ -70,19 +71,38 @@ class RecommendationResult:
     best_alternative_score: Optional[MetricScores] = None
     qos_improvement: float = 0.0
     cooldown_active: bool = False
+    # Phase 4 operating mode & manual override fields
+    operating_mode: str = MODE_AUTOMATIC
+    manual_override_active: bool = False
+    manual_override_requested_id: Optional[str] = None
+    manual_override_reason: str = ""
+    override_terminated: bool = False
+    override_termination_reason: str = ""
+    automatic_best_service: Optional[CloudService] = None
+    automatic_best_score: Optional[MetricScores] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert the recommendation result to a summary dictionary for inspection or serialization."""
         service, scores = self.selected_service, self.selected_scores
         alt, alt_scores = self.best_alternative, self.best_alternative_score
+        auto_best, auto_scores = self.automatic_best_service, self.automatic_best_score
         return {
             "category": self.category,
+            "operating_mode": self.operating_mode,
+            "manual_override_active": self.manual_override_active,
+            "manual_override_requested_id": self.manual_override_requested_id,
+            "manual_override_reason": self.manual_override_reason,
+            "override_terminated": self.override_terminated,
+            "override_termination_reason": self.override_termination_reason,
             "status_code": self.status_code,
             "decision_type": self.decision_type,
             "decision_reason": self.decision_reason,
             "selected_service_id": service.service_id if service else None,
             "selected_service_name": service.name if service else None,
             "qos_score": scores.qos_score if scores else None,
+            "automatic_best_service_id": auto_best.service_id if auto_best else None,
+            "automatic_best_service_name": auto_best.name if auto_best else None,
+            "automatic_best_qos": auto_scores.qos_score if auto_scores else None,
             "best_alternative_id": alt.service_id if alt else None,
             "best_alternative_name": alt.name if alt else None,
             "best_alternative_qos": alt_scores.qos_score if alt_scores else None,
@@ -121,6 +141,9 @@ class RecommendationEngine:
         last_switch_step: Optional[int] = None,
         current_time: Optional[float] = None,
         last_switch_time: Optional[float] = None,
+        operating_mode: str = MODE_AUTOMATIC,
+        manual_service_id: Optional[str] = None,
+        manual_override_reason: str = "",
     ) -> RecommendationResult:
         """Select the optimal SLA-compliant service applying hysteresis anti-flapping rules.
 
@@ -155,8 +178,14 @@ class RecommendationEngine:
         Returns:
             RecommendationResult encapsulating decision, scores, rankings, and explanations.
         """
+        if operating_mode not in (MODE_AUTOMATIC, MODE_MANUAL):
+            raise ValueError(
+                f"Invalid operating_mode '{operating_mode}'. Expected '{MODE_AUTOMATIC}' or '{MODE_MANUAL}'."
+            )
+
         effective_sla = sla_config if sla_config is not None else get_default_sla_config(category)
         effective_hysteresis = hysteresis_config if hysteresis_config is not None else DEFAULT_HYSTERESIS_CONFIG
+        was_manual_requested = (operating_mode == MODE_MANUAL and manual_service_id is not None)
 
         # --- Stage 1: Category Filtering ---
         candidates = [s for s in services if s.category == category]
@@ -175,6 +204,14 @@ class RecommendationEngine:
                 status_code="NO_CANDIDATES",
                 decision_type="NO_ELIGIBLE_SERVICE",
                 decision_reason="No services registered in category.",
+                operating_mode=MODE_AUTOMATIC,
+                manual_override_active=False,
+                manual_override_requested_id=manual_service_id if was_manual_requested else None,
+                override_terminated=was_manual_requested,
+                override_termination_reason=(
+                    f"Manual override terminated: no services registered in category '{category}'."
+                    if was_manual_requested else ""
+                ),
             )
 
         # --- Stage 2: Availability & SLA Filtering ---
@@ -220,6 +257,14 @@ class RecommendationEngine:
                 status_code="NO_SLA_COMPLIANT_SERVICE",
                 decision_type="NO_ELIGIBLE_SERVICE",
                 decision_reason="No candidate service satisfies all operational and SLA constraints.",
+                operating_mode=MODE_AUTOMATIC,
+                manual_override_active=False,
+                manual_override_requested_id=manual_service_id if was_manual_requested else None,
+                override_terminated=was_manual_requested,
+                override_termination_reason=(
+                    f"Emergency override termination: all services in category '{category}' are unavailable or violate SLA."
+                    if was_manual_requested else ""
+                ),
             )
 
         # --- Stage 4: Evaluate and Rank ELIGIBLE Services Only ---
@@ -228,7 +273,7 @@ class RecommendationEngine:
         ranked.sort(key=lambda pair: (-pair[1].qos_score, pair[0].service_id))
         top_candidate, top_score = ranked[0]
 
-        # --- Stage 5: Switching & Hysteresis Decision Logic ---
+        # --- Stage 5: Operating Mode, Manual Override Safety, & Hysteresis Decision Logic ---
         selected_service: CloudService
         selected_scores: MetricScores
         decision_type: str
@@ -238,7 +283,95 @@ class RecommendationEngine:
         qos_improvement: float = 0.0
         cooldown_active: bool = False
 
-        if previously_selected_id is None:
+        result_operating_mode: str = MODE_AUTOMATIC
+        manual_override_active: bool = False
+        result_manual_req_id: Optional[str] = manual_service_id if was_manual_requested else None
+        result_manual_reason: str = manual_override_reason if was_manual_requested else ""
+        override_terminated: bool = False
+        override_termination_reason: str = ""
+
+        if was_manual_requested:
+            override_val = validate_manual_override_request(
+                services=candidates,
+                category=category,
+                requested_service_id=manual_service_id,
+                sla_config=effective_sla,
+            )
+            if override_val.is_valid:
+                # Valid operational & SLA-compliant manual override: explicitly honor user selection
+                manual_svc, manual_sc = next(
+                    (s, sc) for s, sc in ranked if s.service_id == manual_service_id
+                )
+                selected_service = manual_svc
+                selected_scores = manual_sc
+                decision_type = "MANUAL_OVERRIDE"
+                result_operating_mode = MODE_MANUAL
+                manual_override_active = True
+
+                if top_candidate.service_id != manual_svc.service_id:
+                    best_alternative = top_candidate
+                    best_alternative_score = top_score
+                elif len(ranked) > 1:
+                    best_alternative, best_alternative_score = ranked[1]
+
+                qos_improvement = (
+                    round(best_alternative_score.qos_score - manual_sc.qos_score, 4)
+                    if best_alternative_score is not None else 0.0
+                )
+                reason_suffix = f" Reason: {manual_override_reason}" if manual_override_reason else ""
+                decision_reason = (
+                    f"Manual override active: '{manual_svc.name}' ({manual_svc.service_id}) "
+                    f"explicitly selected by operator (QoS: {manual_sc.qos_score:.4f}).{reason_suffix}"
+                )
+            else:
+                # Manual service is missing, unavailable, or violated SLA -> immediate emergency termination!
+                override_terminated = True
+                result_operating_mode = MODE_AUTOMATIC
+                manual_override_active = False
+                result_manual_reason = ""
+                prior_manual = next((s for s in candidates if s.service_id == manual_service_id), None)
+
+                selected_service = top_candidate
+                selected_scores = top_score
+                best_alternative = ranked[1][0] if len(ranked) > 1 else None
+                best_alternative_score = ranked[1][1] if len(ranked) > 1 else None
+                qos_improvement = round(
+                    top_score.qos_score - (best_alternative_score.qos_score if best_alternative_score else 0.0),
+                    4,
+                )
+
+                if prior_manual is None:
+                    decision_type = "INITIAL_SELECTION"
+                    override_termination_reason = override_val.rejection_reason
+                    decision_reason = (
+                        f"Manual override terminated: {override_val.rejection_reason} "
+                        f"Automatic selection chose '{top_candidate.name}' ({top_candidate.service_id})."
+                    )
+                elif prior_manual.operational_status == "UNAVAILABLE":
+                    decision_type = "EMERGENCY_OUTAGE"
+                    override_termination_reason = (
+                        f"Emergency override termination: manually selected service '{prior_manual.name}' "
+                        f"({prior_manual.service_id}) became UNAVAILABLE."
+                    )
+                    decision_reason = (
+                        f"Emergency reselection: manually selected service '{prior_manual.name}' "
+                        f"({prior_manual.service_id}) became UNAVAILABLE; manual override terminated and "
+                        f"switched to '{top_candidate.name}' ({top_candidate.service_id})."
+                    )
+                else:
+                    decision_type = "EMERGENCY_SLA_VIOLATION"
+                    v_text = "; ".join(override_val.sla_violations) if override_val.sla_violations else override_val.rejection_reason
+                    override_termination_reason = (
+                        f"Emergency override termination: manually selected service '{prior_manual.name}' "
+                        f"({prior_manual.service_id}) violated hard SLA constraints ({v_text})."
+                    )
+                    decision_reason = (
+                        f"Emergency reselection: manually selected service '{prior_manual.name}' "
+                        f"({prior_manual.service_id}) violated SLA constraints ({v_text}); manual override "
+                        f"terminated and switched to '{top_candidate.name}' ({top_candidate.service_id})."
+                    )
+
+        elif previously_selected_id is None:
             # Rule A: Initial Selection
             selected_service = top_candidate
             selected_scores = top_score
@@ -353,7 +486,7 @@ class RecommendationEngine:
             f"Reliability: {selected_service.reliability:.2f}% (score: {selected_scores.reliability_score:.2f}).",
         ]
 
-        if previously_selected_id is not None:
+        if previously_selected_id is not None or was_manual_requested:
             reasons.append(f"Reselection trigger: {decision_reason}")
 
         return RecommendationResult(
@@ -374,4 +507,12 @@ class RecommendationEngine:
             best_alternative_score=best_alternative_score,
             qos_improvement=qos_improvement,
             cooldown_active=cooldown_active,
+            operating_mode=result_operating_mode,
+            manual_override_active=manual_override_active,
+            manual_override_requested_id=result_manual_req_id,
+            manual_override_reason=result_manual_reason,
+            override_terminated=override_terminated,
+            override_termination_reason=override_termination_reason,
+            automatic_best_service=top_candidate,
+            automatic_best_score=top_score,
         )

@@ -64,6 +64,8 @@ class ReselectionRecord:
     qos_improvement: float = 0.0
     hysteresis_threshold: float = 0.0
     cooldown_active: bool = False
+    # Phase 4 operating mode tracking field
+    operating_mode: str = "AUTOMATIC"
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert record to dictionary for table display or serialization."""
@@ -187,6 +189,11 @@ def generate_detailed_reselection_explanation(
             "qos_improvement": 0.0,
             "hysteresis_threshold": recommendation.hysteresis_config.min_qos_delta if recommendation.hysteresis_config else 0.0,
             "cooldown_active": False,
+            "operating_mode": recommendation.operating_mode,
+            "manual_override_active": False,
+            "override_terminated": recommendation.override_terminated,
+            "override_termination_reason": recommendation.override_termination_reason,
+            "automatic_best_service": None,
         }
 
     winner = recommendation.selected_service
@@ -214,7 +221,29 @@ def generate_detailed_reselection_explanation(
 
     details = []
 
-    if recommendation.decision_type == "RETAINED":
+    if recommendation.decision_type == "MANUAL_OVERRIDE":
+        reselection_type = "MANUAL_OVERRIDE"
+        reselection_trigger = "Manual Operator Service Override"
+        details.append(
+            f"🎯 **Manual Override Active:** Operator explicitly selected eligible service "
+            f"`{winner.name}` ({winner.service_id}) in `{winner.category}` "
+            f"(QoS score: `{winner_score.qos_score:.4f}`). Hard SLA checks and periodic monitoring remain enforced."
+        )
+        if recommendation.manual_override_reason:
+            details.append(f"📝 **Override Reason:** {recommendation.manual_override_reason}")
+        if (
+            recommendation.automatic_best_service is not None
+            and recommendation.automatic_best_service.service_id != winner.service_id
+            and recommendation.automatic_best_score is not None
+        ):
+            auto_svc = recommendation.automatic_best_service
+            auto_sc = recommendation.automatic_best_score
+            details.append(
+                f"🤖 **Automatic Rank #1 Reference:** Automatic engine would select `{auto_svc.name}` "
+                f"({auto_svc.service_id}, QoS: `{auto_sc.qos_score:.4f}`); manual choice overrides "
+                f"performance-based switching thresholds while SLA-compliant."
+            )
+    elif recommendation.decision_type == "RETAINED":
         reselection_type = "RETAINED"
         reselection_trigger = recommendation.decision_reason or "Anti-Flapping Protection Active (Hysteresis)"
         details.append(
@@ -223,20 +252,28 @@ def generate_detailed_reselection_explanation(
         )
     elif is_reselection and prev_svc:
         if prev_svc.operational_status == "UNAVAILABLE" or recommendation.decision_type == "EMERGENCY_OUTAGE":
-            reselection_trigger = "Previous Service Outage"
+            reselection_trigger = (
+                "Emergency Override Termination (Outage)"
+                if recommendation.override_terminated else "Previous Service Outage"
+            )
             reselection_type = "OUTAGE"
+            prefix = "🛑 **Manual Override Emergency Terminated** — " if recommendation.override_terminated else "🚨 **Disqualification of Prior Choice:** "
             details.append(
-                f"🚨 **Disqualification of Prior Choice:** Prior recommended service `{prev_svc.name}` ({prev_svc.service_id}) "
+                f"{prefix}Prior selected service `{prev_svc.name}` ({prev_svc.service_id}) "
                 f"entered an **UNAVAILABLE** state. Under fail-safe eligibility rules, emergency reselection immediately selected `{winner.name}` "
                 f"(bypassing hysteresis and cooldown)."
             )
         elif (recommendation.sla_config and validate_service_sla(prev_svc, recommendation.sla_config)) or recommendation.decision_type == "EMERGENCY_SLA_VIOLATION":
-            reselection_trigger = "Prior Service SLA Violation"
+            reselection_trigger = (
+                "Emergency Override Termination (SLA Violation)"
+                if recommendation.override_terminated else "Prior Service SLA Violation"
+            )
             reselection_type = "SLA_VIOLATION"
             prev_violations = validate_service_sla(prev_svc, recommendation.sla_config) if recommendation.sla_config else []
             violations_text = "; ".join(prev_violations) if prev_violations else "SLA threshold violation"
+            prefix = "🛑 **Manual Override Emergency Terminated** — " if recommendation.override_terminated else "🚨 **SLA Violation Disqualification:** "
             details.append(
-                f"🚨 **SLA Violation Disqualification:** Prior recommended service `{prev_svc.name}` ({prev_svc.service_id}) "
+                f"{prefix}Prior selected service `{prev_svc.name}` ({prev_svc.service_id}) "
                 f"violated configured SLA constraints ({violations_text}). Emergency reselection immediately selected `{winner.name}` "
                 f"(bypassing hysteresis and cooldown)."
             )
@@ -313,7 +350,11 @@ def generate_detailed_reselection_explanation(
             "reason": reason,
         })
 
-    if recommendation.decision_type == "RETAINED":
+    if recommendation.decision_type == "MANUAL_OVERRIDE":
+        headline = f"Manual Override Active: {winner.name} ({winner.service_id})"
+    elif recommendation.override_terminated:
+        headline = f"Emergency Override Termination: {reselection_trigger}"
+    elif recommendation.decision_type == "RETAINED":
         headline = f"Service Retained: {winner.name} (Anti-Flapping Active)"
     elif is_reselection:
         headline = f"Reselection Triggered: {reselection_trigger}"
@@ -321,7 +362,9 @@ def generate_detailed_reselection_explanation(
         headline = f"Optimal Service: {winner.name} ({winner.service_id})"
 
     summary_text = (
-        f"Recommended '{winner.name}' ({winner.service_id}) with aggregate QoS score of {winner_score.qos_score:.4f}."
+        f"Manually selected '{winner.name}' ({winner.service_id}) with aggregate QoS score of {winner_score.qos_score:.4f}."
+        if recommendation.decision_type == "MANUAL_OVERRIDE"
+        else f"Recommended '{winner.name}' ({winner.service_id}) with aggregate QoS score of {winner_score.qos_score:.4f}."
     )
 
     return {
@@ -336,6 +379,11 @@ def generate_detailed_reselection_explanation(
         "qos_improvement": recommendation.qos_improvement,
         "hysteresis_threshold": recommendation.hysteresis_config.min_qos_delta if recommendation.hysteresis_config else 0.0,
         "cooldown_active": recommendation.cooldown_active,
+        "operating_mode": recommendation.operating_mode,
+        "manual_override_active": recommendation.manual_override_active,
+        "override_terminated": recommendation.override_terminated,
+        "override_termination_reason": recommendation.override_termination_reason,
+        "automatic_best_service": recommendation.automatic_best_service,
         "winner": winner,
         "winner_score": winner_score,
         "winner_health": winner_health,
@@ -456,14 +504,28 @@ def build_candidate_comparison_table(
     for rank_idx, (s, scores) in enumerate(recommendation.ranked_eligible, start=1):
         is_selected = (s.service_id == rec_id)
         is_best_alt = (recommendation.best_alternative and s.service_id == recommendation.best_alternative.service_id) or (not recommendation.best_alternative and rank_idx == 2)
-        role = "⭐ Selected Service" if is_selected else ("🥈 Best Alternative" if is_best_alt else "Eligible Alternative")
+        if is_selected:
+            if recommendation.decision_type == "MANUAL_OVERRIDE":
+                role = "🎯 Selected Service (Manual Override)"
+            elif recommendation.decision_type in ("EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION"):
+                role = "🚨 Selected Service (Emergency Replacement)"
+            else:
+                role = "⭐ Selected Service (Automatic)"
+        elif is_best_alt:
+            role = "🤖 Automatic #1 (Overridden)" if recommendation.decision_type == "MANUAL_OVERRIDE" else "🥈 Best Alternative"
+        else:
+            role = "Eligible Alternative"
         health = classify_service_health(s)
 
         if is_selected:
-            if recommendation.decision_type == "RETAINED":
+            if recommendation.decision_type == "MANUAL_OVERRIDE":
+                notes = f"Selected via Manual Override ({recommendation.manual_override_reason or 'Operator Choice'})"
+            elif recommendation.decision_type == "RETAINED":
                 notes = "Selected (Retained via Hysteresis)"
             elif recommendation.decision_type in ("SWITCHED", "EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION"):
                 notes = f"Selected ({recommendation.decision_type})"
+                if recommendation.override_terminated:
+                    notes += " [Manual Override Terminated]"
             else:
                 notes = "Highest eligible score"
         elif is_best_alt:
@@ -592,6 +654,7 @@ class ReselectionAuditTrail:
             qos_improvement=recommendation.qos_improvement,
             hysteresis_threshold=hysteresis_thresh,
             cooldown_active=recommendation.cooldown_active,
+            operating_mode=recommendation.operating_mode,
         )
         self.records.append(rec)
         return rec
@@ -612,6 +675,7 @@ class ReselectionAuditTrail:
                 "sequence_number": "Seq #",
                 "timestamp": "Timestamp",
                 "trigger_event": "Trigger Event",
+                "operating_mode": "Operating Mode",
                 "decision_type": "Decision Type",
                 "prev_service_id": "Previous Service",
                 "new_service_id": "Selected Service",

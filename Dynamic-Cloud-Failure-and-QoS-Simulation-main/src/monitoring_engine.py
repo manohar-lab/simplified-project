@@ -26,6 +26,12 @@ from src.qos_evaluator import QoSEvaluator
 from src.sla_config import SLAConfig, get_default_sla_config, validate_service_sla
 from src.hysteresis_config import HysteresisConfig, DEFAULT_HYSTERESIS_CONFIG
 from src.recommendation_engine import RecommendationEngine, RecommendationResult
+from src.override_manager import (
+    MODE_AUTOMATIC,
+    MODE_MANUAL,
+    ManualOverrideManager,
+    OVERRIDE_EVENT_EMERGENCY_TERMINATED,
+)
 from src.analytics import (
     classify_service_health,
     HEALTH_HEALTHY,
@@ -51,6 +57,7 @@ EVENT_SLA_VIOLATION_DETECTED = "SLA_VIOLATION_DETECTED"
 EVENT_SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
 EVENT_SERVICE_RECOVERED = "SERVICE_RECOVERED"
 EVENT_AUTOMATIC_RESELECTION = "AUTOMATIC_RESELECTION"
+EVENT_MANUAL_OVERRIDE_TERMINATED = OVERRIDE_EVENT_EMERGENCY_TERMINATED
 EVENT_NO_ELIGIBLE_SERVICE = "NO_ELIGIBLE_SERVICE"
 EVENT_MONITORING_ERROR = "MONITORING_ERROR"
 
@@ -144,6 +151,7 @@ class MonitoringEngine:
         recommendation_engine: RecommendationEngine,
         config: Optional[MonitoringConfig] = None,
         time_fn: Optional[Callable[[], float]] = None,
+        override_manager: Optional[ManualOverrideManager] = None,
     ):
         """Initialize the periodic monitoring engine.
 
@@ -152,11 +160,13 @@ class MonitoringEngine:
             recommendation_engine: Existing RecommendationEngine (Phase 1 SLA + Phase 2 Hysteresis).
             config: MonitoringConfig instance. Defaults to DEFAULT_MONITORING_CONFIG.
             time_fn: Injectable clock returning epoch seconds (defaults to time.time).
+            override_manager: Optional ManualOverrideManager for operating mode integration.
         """
         self.evaluator = evaluator
         self.recommendation_engine = recommendation_engine
         self.config: MonitoringConfig = config if config is not None else DEFAULT_MONITORING_CONFIG
         self.time_fn: Callable[[], float] = time_fn if time_fn is not None else time.time
+        self.override_manager: Optional[ManualOverrideManager] = override_manager
 
         self.is_active: bool = self.config.enabled
         self.cycle_count: int = 0
@@ -351,6 +361,7 @@ class MonitoringEngine:
         last_switch_time: Optional[float] = None,
         force: bool = False,
         respect_interval: bool = False,
+        override_manager: Optional[ManualOverrideManager] = None,
     ) -> MonitoringCycleResult:
         """Execute one deterministic service monitoring and reassessment cycle.
 
@@ -617,7 +628,21 @@ class MonitoringEngine:
                     "sla_violations": sla_violations,
                 }
 
-            # 5. Invoke existing Recommendation Engine (Phase 1 SLA + Phase 2 Hysteresis)
+            # 5. Invoke existing Recommendation Engine (Phase 1 SLA + Phase 2 Hysteresis + Phase 4 Operating Mode)
+            eff_override_mgr = override_manager if override_manager is not None else self.override_manager
+            if (
+                eff_override_mgr is not None
+                and eff_override_mgr.is_manual_active
+                and eff_override_mgr.category == category
+            ):
+                run_mode = MODE_MANUAL
+                manual_id = eff_override_mgr.requested_service_id
+                manual_reason = eff_override_mgr.reason
+            else:
+                run_mode = MODE_AUTOMATIC
+                manual_id = None
+                manual_reason = ""
+
             rec = self.recommendation_engine.recommend(
                 services=cat_services,
                 category=category,
@@ -629,11 +654,36 @@ class MonitoringEngine:
                 last_switch_step=effective_last_switch_step,
                 current_time=now_epoch,
                 last_switch_time=effective_last_switch_time,
+                operating_mode=run_mode,
+                manual_service_id=manual_id,
+                manual_override_reason=manual_reason,
             )
 
             reselection_triggered = False
             selected_id: Optional[str] = None
             selected_name: Optional[str] = None
+
+            if rec.override_terminated and manual_id is not None:
+                replacement_id = rec.selected_service.service_id if rec.selected_service else None
+                terminated_logged = True
+                if eff_override_mgr is not None:
+                    terminated_logged = eff_override_mgr.handle_emergency_termination(
+                        failed_service_id=manual_id,
+                        replacement_service_id=replacement_id,
+                        reason=rec.override_termination_reason,
+                        category=category,
+                    )
+                if terminated_logged:
+                    failed_snap = service_snapshots.get(manual_id)
+                    pending_events.append({
+                        "event_type": EVENT_MANUAL_OVERRIDE_TERMINATED,
+                        "service_id": manual_id,
+                        "service_name": failed_snap.name if failed_snap else manual_id,
+                        "prev": MODE_MANUAL,
+                        "new": MODE_AUTOMATIC,
+                        "reason": rec.override_termination_reason,
+                    })
+                    reselection_triggered = True
 
             if not rec.has_eligible_service or rec.selected_service is None:
                 selected_id = None
@@ -659,6 +709,7 @@ class MonitoringEngine:
 
                 is_actual_switch = (
                     rec.decision_type in ("SWITCHED", "EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION")
+                    or (rec.decision_type == "MANUAL_OVERRIDE" and effective_prev_id is not None and selected_id != effective_prev_id)
                     or (was_no_eligible and selected_id != effective_prev_id)
                 )
 

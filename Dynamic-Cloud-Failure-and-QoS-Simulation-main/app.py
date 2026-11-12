@@ -35,6 +35,11 @@ from src.sla_config import SLAConfig, get_default_sla_config, validate_service_s
 from src.hysteresis_config import HysteresisConfig, DEFAULT_HYSTERESIS_CONFIG
 from src.monitoring_config import MonitoringConfig, DEFAULT_MONITORING_CONFIG
 from src.monitoring_engine import MonitoringEngine, STATUS_ACTIVE
+from src.override_manager import (
+    MODE_AUTOMATIC,
+    MODE_MANUAL,
+    ManualOverrideManager,
+)
 from src.failure_simulator import FailureSimulator
 from src.recommendation_engine import RecommendationEngine
 from src.analytics import (
@@ -164,9 +169,16 @@ if "history_tracker" not in st.session_state:
 if "reselection_audit_trail" not in st.session_state:
     st.session_state.reselection_audit_trail = ReselectionAuditTrail()
 
+if "override_manager" not in st.session_state:
+    st.session_state.override_manager = ManualOverrideManager()
+
+if "override_feedback" not in st.session_state:
+    st.session_state.override_feedback = None
+
 simulator: FailureSimulator = st.session_state.simulator
 history_tracker: HistoryTracker = st.session_state.history_tracker
 reselection_audit_trail: ReselectionAuditTrail = st.session_state.reselection_audit_trail
+override_manager: ManualOverrideManager = st.session_state.override_manager
 
 all_services = simulator.get_all_services()
 reference_bounds = compute_reference_bounds(all_services)
@@ -178,9 +190,11 @@ if "monitoring_engine" not in st.session_state:
         evaluator=evaluator,
         recommendation_engine=engine,
         config=DEFAULT_MONITORING_CONFIG,
+        override_manager=override_manager,
     )
 
 monitoring_engine: MonitoringEngine = st.session_state.monitoring_engine
+monitoring_engine.override_manager = override_manager
 st.session_state["_is_full_app_render"] = True
 
 
@@ -386,6 +400,53 @@ with st.sidebar:
     st.markdown("---")
     btn_reset = st.button("🔄 Reset All Services", use_container_width=True, type="secondary")
 
+    def _finalize_sidebar_action(prev_choice_id: str | None, trigger_label: str) -> None:
+        """Re-evaluate recommendation after a sidebar fault/recovery action, respecting operating mode safety."""
+        current_step_idx = len(history_tracker.snapshots)
+        is_manual_for_cat = (
+            override_manager.is_manual_active
+            and override_manager.category == selected_category
+        )
+        new_rec = engine.recommend(
+            simulator.get_all_services(),
+            selected_category,
+            normalized_weights,
+            prev_choice_id,
+            sla_config=active_sla,
+            hysteresis_config=active_hysteresis,
+            current_step=current_step_idx,
+            last_switch_step=st.session_state.last_switch_step,
+            operating_mode=override_manager.mode if is_manual_for_cat else MODE_AUTOMATIC,
+            manual_service_id=override_manager.requested_service_id if is_manual_for_cat else None,
+            manual_override_reason=override_manager.reason,
+        )
+        if new_rec.override_terminated and is_manual_for_cat:
+            failed_id = override_manager.requested_service_id
+            replacement_id = new_rec.selected_service.service_id if new_rec.selected_service else None
+            override_manager.handle_emergency_termination(
+                failed_service_id=failed_id,
+                replacement_service_id=replacement_id,
+                reason=new_rec.override_termination_reason,
+                category=selected_category,
+            )
+            st.session_state.override_feedback = ("error", new_rec.override_termination_reason)
+            st.session_state["_recent_override_terminated"] = True
+            trigger_label = f"{trigger_label} -> Emergency Override Termination"
+
+        if new_rec.decision_type in ("SWITCHED", "EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION"):
+            st.session_state.last_switch_step = current_step_idx
+
+        reselection_audit_trail.record_decision(
+            trigger_event=trigger_label,
+            recommendation=new_rec,
+            evaluator=evaluator,
+            weights=normalized_weights,
+            prev_service_id=prev_choice_id,
+            all_category_services=simulator.get_services_by_category(selected_category),
+        )
+        st.session_state["_recent_button_action"] = True
+        st.rerun()
+
     # --- Button Event Handlers ---
     if btn_spike and target_service_id:
         prev_choice_id = st.session_state.prev_recommended_id
@@ -416,31 +477,7 @@ with st.sidebar:
             evaluator=evaluator,
             weights=normalized_weights,
         )
-        # Log to reselection decision audit trail
-        current_step_idx = len(history_tracker.snapshots)
-        new_rec = engine.recommend(
-            simulator.get_all_services(),
-            selected_category,
-            normalized_weights,
-            prev_choice_id,
-            sla_config=active_sla,
-            hysteresis_config=active_hysteresis,
-            current_step=current_step_idx,
-            last_switch_step=st.session_state.last_switch_step,
-        )
-        if new_rec.decision_type in ("SWITCHED", "EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION"):
-            st.session_state.last_switch_step = current_step_idx
-
-        reselection_audit_trail.record_decision(
-            trigger_event=f"Latency Spike (+{spike_val}ms) on {target_service_id}",
-            recommendation=new_rec,
-            evaluator=evaluator,
-            weights=normalized_weights,
-            prev_service_id=prev_choice_id,
-            all_category_services=simulator.get_services_by_category(selected_category),
-        )
-        st.session_state["_recent_button_action"] = True
-        st.rerun()
+        _finalize_sidebar_action(prev_choice_id, f"Latency Spike (+{spike_val}ms) on {target_service_id}")
 
     if btn_outage and target_service_id:
         prev_choice_id = st.session_state.prev_recommended_id
@@ -471,30 +508,7 @@ with st.sidebar:
             evaluator=evaluator,
             weights=normalized_weights,
         )
-        current_step_idx = len(history_tracker.snapshots)
-        new_rec = engine.recommend(
-            simulator.get_all_services(),
-            selected_category,
-            normalized_weights,
-            prev_choice_id,
-            sla_config=active_sla,
-            hysteresis_config=active_hysteresis,
-            current_step=current_step_idx,
-            last_switch_step=st.session_state.last_switch_step,
-        )
-        if new_rec.decision_type in ("SWITCHED", "EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION"):
-            st.session_state.last_switch_step = current_step_idx
-
-        reselection_audit_trail.record_decision(
-            trigger_event=f"Outage Triggered on {target_service_id}",
-            recommendation=new_rec,
-            evaluator=evaluator,
-            weights=normalized_weights,
-            prev_service_id=prev_choice_id,
-            all_category_services=simulator.get_services_by_category(selected_category),
-        )
-        st.session_state["_recent_button_action"] = True
-        st.rerun()
+        _finalize_sidebar_action(prev_choice_id, f"Outage Triggered on {target_service_id}")
 
     if btn_drop and target_service_id:
         prev_choice_id = st.session_state.prev_recommended_id
@@ -525,30 +539,7 @@ with st.sidebar:
             evaluator=evaluator,
             weights=normalized_weights,
         )
-        current_step_idx = len(history_tracker.snapshots)
-        new_rec = engine.recommend(
-            simulator.get_all_services(),
-            selected_category,
-            normalized_weights,
-            prev_choice_id,
-            sla_config=active_sla,
-            hysteresis_config=active_hysteresis,
-            current_step=current_step_idx,
-            last_switch_step=st.session_state.last_switch_step,
-        )
-        if new_rec.decision_type in ("SWITCHED", "EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION"):
-            st.session_state.last_switch_step = current_step_idx
-
-        reselection_audit_trail.record_decision(
-            trigger_event=f"Availability Drop (-{drop_val}%) on {target_service_id}",
-            recommendation=new_rec,
-            evaluator=evaluator,
-            weights=normalized_weights,
-            prev_service_id=prev_choice_id,
-            all_category_services=simulator.get_services_by_category(selected_category),
-        )
-        st.session_state["_recent_button_action"] = True
-        st.rerun()
+        _finalize_sidebar_action(prev_choice_id, f"Availability Drop (-{drop_val}%) on {target_service_id}")
 
     if btn_restore and target_service_id:
         prev_choice_id = st.session_state.prev_recommended_id
@@ -579,34 +570,13 @@ with st.sidebar:
             evaluator=evaluator,
             weights=normalized_weights,
         )
-        current_step_idx = len(history_tracker.snapshots)
-        new_rec = engine.recommend(
-            simulator.get_all_services(),
-            selected_category,
-            normalized_weights,
-            prev_choice_id,
-            sla_config=active_sla,
-            hysteresis_config=active_hysteresis,
-            current_step=current_step_idx,
-            last_switch_step=st.session_state.last_switch_step,
-        )
-        if new_rec.decision_type in ("SWITCHED", "EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION"):
-            st.session_state.last_switch_step = current_step_idx
-
-        reselection_audit_trail.record_decision(
-            trigger_event=f"Service Restored on {target_service_id}",
-            recommendation=new_rec,
-            evaluator=evaluator,
-            weights=normalized_weights,
-            prev_service_id=prev_choice_id,
-            all_category_services=simulator.get_services_by_category(selected_category),
-        )
-        st.session_state["_recent_button_action"] = True
-        st.rerun()
+        _finalize_sidebar_action(prev_choice_id, f"Service Restored on {target_service_id}")
 
     if btn_reset:
         simulator.reset_simulation()
         monitoring_engine.reset(clear_events=False)
+        override_manager.reset(clear_events=False)
+        st.session_state.override_feedback = None
         st.session_state.prev_recommended_id = None
         st.session_state.last_switch_step = None
         st.session_state.last_action_summary = {
@@ -661,11 +631,28 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Run recommendation engine on current state
+# Handle category transitions explicitly if a manual override belonged to another category
+if override_manager.is_manual_active and override_manager.category != selected_category:
+    prev_cat = override_manager.category
+    override_manager.clear_override(
+        reason=f"Category changed from '{prev_cat}' to '{selected_category}'; automatic mode restored."
+    )
+    st.session_state.prev_recommended_id = None
+    st.session_state.override_feedback = (
+        "info",
+        f"Category changed to '{selected_category}'. Manual override from '{prev_cat}' was cleared and Automatic Mode restored.",
+    )
+
+# Run recommendation engine on current state & operating mode
 current_step_idx = len(history_tracker.snapshots)
 raw_prev_id = st.session_state.prev_recommended_id
 category_service_ids = {s.service_id for s in category_services}
 old_prev_id = raw_prev_id if (raw_prev_id is not None and raw_prev_id in category_service_ids) else None
+
+is_manual_active_for_cat = (
+    override_manager.is_manual_active
+    and override_manager.category == selected_category
+)
 
 recommendation = engine.recommend(
     services=all_services,
@@ -676,7 +663,34 @@ recommendation = engine.recommend(
     hysteresis_config=active_hysteresis,
     current_step=current_step_idx,
     last_switch_step=st.session_state.last_switch_step,
+    operating_mode=override_manager.mode if is_manual_active_for_cat else MODE_AUTOMATIC,
+    manual_service_id=override_manager.requested_service_id if is_manual_active_for_cat else None,
+    manual_override_reason=override_manager.reason,
 )
+
+was_button_action = bool(st.session_state.pop("_recent_button_action", False))
+recent_override_terminated = bool(st.session_state.pop("_recent_override_terminated", False))
+
+if recommendation.override_terminated and is_manual_active_for_cat:
+    failed_manual_id = override_manager.requested_service_id
+    replacement_id = recommendation.selected_service.service_id if recommendation.selected_service else None
+    terminated_now = override_manager.handle_emergency_termination(
+        failed_service_id=failed_manual_id,
+        replacement_service_id=replacement_id,
+        reason=recommendation.override_termination_reason,
+        category=selected_category,
+    )
+    st.session_state.override_feedback = ("error", recommendation.override_termination_reason)
+    if terminated_now and not was_button_action:
+        reselection_audit_trail.record_decision(
+            trigger_event="Policy / SLA Change -> Emergency Override Termination",
+            recommendation=recommendation,
+            evaluator=evaluator,
+            weights=normalized_weights,
+            prev_service_id=failed_manual_id,
+            all_category_services=category_services,
+        )
+    recent_override_terminated = True
 
 # Generate intelligent explainability breakdown
 explanation_data = generate_detailed_reselection_explanation(
@@ -687,8 +701,10 @@ explanation_data = generate_detailed_reselection_explanation(
     all_category_services=category_services,
     last_action=st.session_state.last_action_detail,
 )
-
-was_button_action = bool(st.session_state.pop("_recent_button_action", False))
+if recent_override_terminated:
+    explanation_data["override_terminated"] = True
+    if "Emergency Override Termination" not in explanation_data.get("reselection_trigger", ""):
+        explanation_data["reselection_trigger"] = f"Emergency Override Termination ({explanation_data.get('reselection_trigger', 'Failover')})"
 
 # Initialize baseline decision in audit trail if empty
 if len(reselection_audit_trail.records) == 0 and recommendation.has_eligible_service:
@@ -707,6 +723,7 @@ if recommended_id is not None:
         st.session_state.last_switch_step = current_step_idx
         if (
             not was_button_action
+            and not recent_override_terminated
             and len(reselection_audit_trail.records) > 0
             and old_prev_id is not None
         ):
@@ -722,9 +739,10 @@ if recommended_id is not None:
 else:
     st.session_state.prev_recommended_id = None
 
-# Keep monitoring engine synchronized with current parameters & active choice
+# Keep monitoring engine synchronized with current parameters, operating mode & active choice
 monitoring_engine.evaluator = evaluator
 monitoring_engine.recommendation_engine = engine
+monitoring_engine.override_manager = override_manager
 monitoring_engine.sync_external_selection(
     category=selected_category,
     selected_id=recommended_id,
@@ -745,6 +763,248 @@ if st.session_state.last_action_summary:
         f"*(Target: `{summary['service_id']} - {summary['service_name']}` | "
         f"Before: `{summary['before']}` ➜ After: `{summary['after']}`)*"
     )
+
+
+# =========================================================================
+# Operating Mode & Manual Service Override Control (Phase 4)
+# =========================================================================
+st.markdown("### 🎛️ Operating Mode & Service Selection Control")
+
+eligible_pairs = recommendation.ranked_eligible
+eligible_service_ids = [s.service_id for s, _ in eligible_pairs]
+eligible_labels = {
+    s.service_id: f"{s.service_id} - {s.name} (QoS: {sc.qos_score:.4f} | Lat: {s.latency:.1f}ms)"
+    for s, sc in eligible_pairs
+}
+
+active_mode = MODE_MANUAL if recommendation.manual_override_active else MODE_AUTOMATIC
+mode_bg = "#F3E8FF" if active_mode == MODE_MANUAL else "#DBEAFE"
+mode_fg = "#6B21A8" if active_mode == MODE_MANUAL else "#1E40AF"
+mode_icon = "🎯" if active_mode == MODE_MANUAL else "🤖"
+
+if not recommendation.has_eligible_service or recommendation.selected_service is None:
+    sel_summary_txt = "None (No SLA-Compliant Service Available)"
+    sel_kind_txt = "Unavailable / All Ineligible"
+elif recommendation.decision_type == "MANUAL_OVERRIDE":
+    sel_summary_txt = f"{recommendation.selected_service.service_id} - {recommendation.selected_service.name}"
+    sel_kind_txt = "Manually Overridden Service"
+elif recommendation.decision_type in ("EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION") or recent_override_terminated:
+    sel_summary_txt = f"{recommendation.selected_service.service_id} - {recommendation.selected_service.name}"
+    sel_kind_txt = "Emergency Replacement Service"
+else:
+    sel_summary_txt = f"{recommendation.selected_service.service_id} - {recommendation.selected_service.name}"
+    sel_kind_txt = "Automatically Selected Service"
+
+auto_best = recommendation.automatic_best_service
+auto_best_score = recommendation.automatic_best_score
+auto_ref_txt = (
+    f"{auto_best.service_id} - {auto_best.name} (QoS: {auto_best_score.qos_score:.4f})"
+    if auto_best is not None and auto_best_score is not None
+    else "None Available"
+)
+sla_status_txt = (
+    f"Compliant ({len(eligible_pairs)}/{len(category_services)} eligible)"
+    if len(eligible_pairs) > 0
+    else f"No Compliant Service (0/{len(category_services)} eligible)"
+)
+
+st.markdown(
+    f"""
+    <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 10px 14px; margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 18px; align-items: center;">
+        <span style="background-color: {mode_bg}; color: {mode_fg}; font-weight: 700; padding: 3px 10px; border-radius: 999px; font-size: 0.85rem;">
+            {mode_icon} Mode: {html.escape(active_mode)}
+        </span>
+        <span style="color: #1E293B; font-size: 0.9rem;">Active Selection: <b>{html.escape(sel_summary_txt)}</b> <i>({html.escape(sel_kind_txt)})</i></span>
+        <span style="color: #475569; font-size: 0.9rem;">Automatic Rank #1: <b>{html.escape(auto_ref_txt)}</b></span>
+        <span style="color: #475569; font-size: 0.9rem;">SLA Compliance: <b>{html.escape(sla_status_txt)}</b></span>
+        <span style="color: #475569; font-size: 0.9rem;">Manual Override: <b>{"ACTIVE" if override_manager.is_manual_active else "INACTIVE"}</b></span>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+st.caption(f"**Selection Reason:** {recommendation.decision_reason}")
+
+feedback = st.session_state.pop("override_feedback", None)
+if feedback is not None:
+    fb_level, fb_msg = feedback
+    if fb_level == "error":
+        st.error(f"🛑 {fb_msg}")
+    elif fb_level == "success":
+        st.success(f"✅ {fb_msg}")
+    else:
+        st.info(f"ℹ️ {fb_msg}")
+
+ov_col1, ov_col2, ov_col3, ov_col4 = st.columns([0.36, 0.28, 0.18, 0.18])
+with ov_col1:
+    if eligible_service_ids:
+        default_ov_idx = 0
+        if override_manager.is_manual_active and override_manager.requested_service_id in eligible_service_ids:
+            default_ov_idx = eligible_service_ids.index(override_manager.requested_service_id)
+        chosen_manual_id = st.selectbox(
+            "Eligible Services for Manual Selection",
+            options=eligible_service_ids,
+            index=default_ov_idx,
+            format_func=lambda sid: eligible_labels.get(sid, sid),
+            key="manual_override_target_select",
+            help="Only operationally AVAILABLE and SLA-compliant candidates in the active category are selectable.",
+        )
+    else:
+        st.selectbox(
+            "Eligible Services for Manual Selection",
+            options=["NONE_ELIGIBLE"],
+            index=0,
+            format_func=lambda _: "No eligible SLA-compliant services available",
+            disabled=True,
+            key="manual_override_target_select",
+        )
+        chosen_manual_id = None
+
+with ov_col2:
+    manual_reason_text = st.text_input(
+        "Override Reason (Optional)",
+        value=override_manager.reason if override_manager.is_manual_active else "",
+        placeholder="e.g., Operator preference / maintenance check",
+        key="manual_override_reason_input",
+    )
+
+with ov_col3:
+    st.markdown("<div style='margin-top: 26px;'></div>", unsafe_allow_html=True)
+    btn_activate_override = st.button(
+        "🎯 Activate Manual Override",
+        key="btn_activate_manual_override",
+        use_container_width=True,
+        disabled=(len(eligible_service_ids) == 0),
+    )
+
+with ov_col4:
+    st.markdown("<div style='margin-top: 26px;'></div>", unsafe_allow_html=True)
+    btn_clear_override = st.button(
+        "🔄 Return to Automatic",
+        key="btn_clear_manual_override",
+        use_container_width=True,
+        disabled=(not override_manager.is_manual_active),
+    )
+
+if btn_activate_override:
+    prior_active_id = recommended_id
+    ok_ov, msg_ov, _ = override_manager.request_manual_override(
+        services=all_services,
+        category=selected_category,
+        requested_service_id=chosen_manual_id,
+        sla_config=active_sla,
+        reason=manual_reason_text,
+    )
+    if ok_ov and chosen_manual_id is not None:
+        man_rec = engine.recommend(
+            services=all_services,
+            category=selected_category,
+            weights=normalized_weights,
+            previously_selected_id=prior_active_id,
+            sla_config=active_sla,
+            hysteresis_config=active_hysteresis,
+            current_step=len(history_tracker.snapshots),
+            last_switch_step=st.session_state.last_switch_step,
+            operating_mode=MODE_MANUAL,
+            manual_service_id=chosen_manual_id,
+            manual_override_reason=override_manager.reason,
+        )
+        history_tracker.record_snapshot(
+            action="Manual Override Activated",
+            target_service_id=chosen_manual_id,
+            target_service_name=man_rec.selected_service.name if man_rec.selected_service else chosen_manual_id,
+            message=msg_ov,
+            services=simulator.get_all_services(),
+            evaluator=evaluator,
+            weights=normalized_weights,
+        )
+        reselection_audit_trail.record_decision(
+            trigger_event=f"Manual Override Activated -> {chosen_manual_id}",
+            recommendation=man_rec,
+            evaluator=evaluator,
+            weights=normalized_weights,
+            prev_service_id=prior_active_id,
+            all_category_services=category_services,
+        )
+        st.session_state.last_switch_step = len(history_tracker.snapshots)
+        st.session_state.prev_recommended_id = chosen_manual_id
+        monitoring_engine.sync_external_selection(
+            category=selected_category,
+            selected_id=chosen_manual_id,
+            switch_step=st.session_state.last_switch_step,
+        )
+        st.session_state.last_action_summary = {
+            "action": "Manual Override Activated",
+            "service_id": chosen_manual_id,
+            "service_name": man_rec.selected_service.name if man_rec.selected_service else chosen_manual_id,
+            "before": prior_active_id or "None",
+            "after": chosen_manual_id,
+            "message": msg_ov,
+        }
+        st.session_state.override_feedback = ("success", msg_ov)
+        st.session_state["_recent_button_action"] = True
+        st.rerun()
+    else:
+        st.session_state.override_feedback = ("error", msg_ov)
+        st.rerun()
+
+if btn_clear_override:
+    prior_manual_id = override_manager.requested_service_id or recommended_id
+    cleared_ok = override_manager.clear_override(
+        reason=f"Operator cleared manual override on '{prior_manual_id}' and restored Automatic Mode."
+    )
+    if cleared_ok:
+        auto_rec = engine.recommend(
+            services=all_services,
+            category=selected_category,
+            weights=normalized_weights,
+            previously_selected_id=None,
+            sla_config=active_sla,
+            hysteresis_config=active_hysteresis,
+            current_step=len(history_tracker.snapshots),
+            last_switch_step=st.session_state.last_switch_step,
+            operating_mode=MODE_AUTOMATIC,
+        )
+        auto_winner_id = auto_rec.selected_service.service_id if auto_rec.selected_service else None
+        auto_winner_name = auto_rec.selected_service.name if auto_rec.selected_service else "None"
+        history_tracker.record_snapshot(
+            action="Manual Override Cleared",
+            target_service_id=auto_winner_id or "NONE",
+            target_service_name=auto_winner_name,
+            message=f"Returned to Automatic Mode (selected: {auto_winner_id}).",
+            services=simulator.get_all_services(),
+            evaluator=evaluator,
+            weights=normalized_weights,
+        )
+        if auto_rec.has_eligible_service:
+            reselection_audit_trail.record_decision(
+                trigger_event=f"Manual Override Cleared -> Automatic Mode ({auto_winner_id})",
+                recommendation=auto_rec,
+                evaluator=evaluator,
+                weights=normalized_weights,
+                prev_service_id=prior_manual_id,
+                all_category_services=category_services,
+            )
+        st.session_state.last_switch_step = len(history_tracker.snapshots)
+        st.session_state.prev_recommended_id = auto_winner_id
+        monitoring_engine.sync_external_selection(
+            category=selected_category,
+            selected_id=auto_winner_id,
+            switch_step=st.session_state.last_switch_step,
+        )
+        st.session_state.last_action_summary = {
+            "action": "Manual Override Cleared",
+            "service_id": auto_winner_id or "NONE",
+            "service_name": auto_winner_name,
+            "before": prior_manual_id or "None",
+            "after": auto_winner_id or "NONE",
+            "message": f"Manual override cleared; control returned to Automatic Mode ({auto_winner_id}).",
+        }
+        st.session_state.override_feedback = (
+            "info",
+            f"Manual override cleared. Control returned to Automatic Mode ({auto_winner_id or 'None Available'}).",
+        )
+        st.session_state["_recent_button_action"] = True
+        st.rerun()
 
 
 # =========================================================================
@@ -774,6 +1034,8 @@ def _periodic_monitoring_body() -> None:
             help="Immediately run one monitoring assessment cycle without waiting for the next timer tick.",
         )
 
+    override_mgr: ManualOverrideManager = st.session_state.override_manager
+
     if manual_check or mon.is_active:
         cycle_res = mon.run_cycle(
             services=sim.get_all_services(),
@@ -786,6 +1048,7 @@ def _periodic_monitoring_body() -> None:
             last_switch_step=st.session_state.last_switch_step,
             force=bool(manual_check),
             respect_interval=False,
+            override_manager=override_mgr,
         )
     else:
         cycle_res = mon.last_cycle_result
@@ -803,12 +1066,24 @@ def _periodic_monitoring_body() -> None:
             cat_svcs = sim.get_services_by_category(cat)
             rec_res = cycle_res.recommendation_result
 
+            if rec_res.override_terminated:
+                st.session_state.override_feedback = (
+                    "error",
+                    rec_res.override_termination_reason
+                    or f"Emergency termination of manual override: switched to {new_id or 'NONE'}.",
+                )
+                st.session_state["_recent_override_terminated"] = True
+
             if new_id is not None:
                 st.session_state.last_switch_step = len(hist.snapshots)
             st.session_state.prev_recommended_id = new_id
 
             hist.record_snapshot(
-                action="Periodic Monitor Reselection",
+                action=(
+                    "Emergency Override Reselection"
+                    if rec_res.override_terminated
+                    else "Periodic Monitor Reselection"
+                ),
                 target_service_id=new_id or "NONE",
                 target_service_name=cycle_res.selected_service_name or "None",
                 message=rec_res.decision_reason,
@@ -817,7 +1092,11 @@ def _periodic_monitoring_body() -> None:
                 weights=wts,
             )
             audit.record_decision(
-                trigger_event=f"Periodic Monitoring Cycle #{cycle_res.cycle_number}",
+                trigger_event=(
+                    f"Emergency Override Failover (Cycle #{cycle_res.cycle_number})"
+                    if rec_res.override_terminated
+                    else f"Periodic Monitoring Cycle #{cycle_res.cycle_number}"
+                ),
                 recommendation=rec_res,
                 evaluator=eval_obj,
                 weights=wts,
@@ -825,7 +1104,11 @@ def _periodic_monitoring_body() -> None:
                 all_category_services=cat_svcs,
             )
             st.session_state.last_action_summary = {
-                "action": "Automatic Periodic Reselection",
+                "action": (
+                    "Emergency Manual Override Termination"
+                    if rec_res.override_terminated
+                    else "Automatic Periodic Reselection"
+                ),
                 "service_id": new_id or "NONE",
                 "service_name": cycle_res.selected_service_name or "No Eligible Service",
                 "before": prev_id or "None",
@@ -839,6 +1122,7 @@ def _periodic_monitoring_body() -> None:
     badge_bg = "#DCFCE7" if is_active_now else "#FEF3C7"
     badge_fg = "#166534" if is_active_now else "#92400E"
     badge_icon = "🟢" if is_active_now else "⏸️"
+    mode_label = "🎯 MANUAL_OVERRIDE" if override_mgr.is_manual_active else "🤖 AUTOMATIC"
 
     with hdr_col1:
         st.markdown(
@@ -847,6 +1131,7 @@ def _periodic_monitoring_body() -> None:
                 <span style="background-color: {badge_bg}; color: {badge_fg}; font-weight: 700; padding: 3px 10px; border-radius: 999px; font-size: 0.85rem;">
                     {badge_icon} {html.escape(mon_summary['status'])}
                 </span>
+                <span style="color: #475569; font-size: 0.9rem;">Mode: <b>{mode_label}</b></span>
                 <span style="color: #475569; font-size: 0.9rem;">Category: <b>{html.escape(str(cat))}</b></span>
                 <span style="color: #475569; font-size: 0.9rem;">Interval: <b>{mon_summary['interval_seconds']:.0f}s</b></span>
                 <span style="color: #475569; font-size: 0.9rem;">Cycles Executed: <b>#{mon_summary['cycle_count']}</b></span>
@@ -981,10 +1266,18 @@ with tab_overview:
             delta_color="inverse" if unavailable_in_cat > 0 else "normal",
         )
     with kpi5:
+        if recommendation.manual_override_active and recommendation.selected_scores:
+            kpi5_delta = f"🎯 Manual Override | QoS: {rec_score}"
+        elif recommendation.override_terminated and recommendation.selected_scores:
+            kpi5_delta = f"🚨 Emergency Replacement | QoS: {rec_score}"
+        elif recommendation.selected_scores:
+            kpi5_delta = f"🤖 Automatic | QoS: {rec_score}"
+        else:
+            kpi5_delta = "No Selection"
         st.metric(
             "Selected Service",
             rec_name,
-            delta=f"QoS: {rec_score}" if recommendation.selected_scores else "No Selection",
+            delta=kpi5_delta,
         )
 
     st.markdown("---")
@@ -1035,24 +1328,41 @@ with tab_overview:
     with col_dec2:
         reselect_trig = explanation_data.get("reselection_trigger", "Optimal Score Selection")
         reselect_type = explanation_data.get("reselection_type", "INITIAL")
+        is_manual_dec = bool(recommendation.manual_override_active)
+        is_emerg_dec = bool(recommendation.override_terminated) or reselect_type in (
+            "EMERGENCY_OUTAGE",
+            "EMERGENCY_SLA_VIOLATION",
+            "OUTAGE",
+            "SLA_VIOLATION",
+        )
         type_icon = (
-            "🚨" if reselect_type in ("OUTAGE", "SLA_VIOLATION", "EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION")
-            else ("🛡️" if reselect_type == "RETAINED"
-                  else ("🔄" if reselect_type == "SWITCHED"
-                        else ("⚠️" if reselect_type == "DEGRADATION" else "🏆")))
+            "🚨" if is_emerg_dec
+            else ("🎯" if is_manual_dec
+                  else ("🛡️" if reselect_type == "RETAINED"
+                        else ("🔄" if reselect_type == "SWITCHED"
+                              else ("⚠️" if reselect_type == "DEGRADATION" else "🤖"))))
         )
         action_text = (
-            "Service Retained (Anti-Flapping)" if reselect_type == "RETAINED"
-            else ("Service Reselection" if explanation_data.get("is_reselection") else "Optimal Rank #1 Selection")
+            "Emergency Override Termination & Failover"
+            if recommendation.override_terminated
+            else (
+                "Manual Service Override Active"
+                if is_manual_dec
+                else (
+                    "Service Retained (Anti-Flapping)"
+                    if reselect_type == "RETAINED"
+                    else ("Service Reselection" if explanation_data.get("is_reselection") else "Automatic Rank #1 Selection")
+                )
+            )
         )
         st.markdown(
             f"""
             <div class="metric-card">
                 <div style="font-size:0.82rem; color:#64748B; font-weight:600; text-transform:uppercase;">Decision Trigger</div>
-                <div style="font-size:1.15rem; font-weight:700; color:#1E293B; margin:4px 0;">{type_icon} {reselect_trig}</div>
-                <div>Action: <b>{action_text}</b></div>
+                <div style="font-size:1.15rem; font-weight:700; color:#1E293B; margin:4px 0;">{type_icon} {html.escape(str(reselect_trig))}</div>
+                <div>Action: <b>{action_text}</b> | Mode: <b>{html.escape(recommendation.operating_mode)}</b></div>
                 <div style="margin-top:4px; font-size:0.88rem; color:#475569;">
-                    Evaluated across {len(category_services)} services with active SLA & Hysteresis thresholds.
+                    Evaluated across {len(category_services)} services with active SLA &amp; Hysteresis thresholds.
                 </div>
             </div>
             """,
@@ -1066,12 +1376,30 @@ with tab_overview:
             win_sc = recommendation.selected_scores
             win_h = explanation_data.get("winner_health", "HEALTHY")
             w_badge = "🟢 HEALTHY" if win_h == HEALTH_HEALTHY else "🟠 DEGRADED"
-            role_badge = "🛡️ RETAINED" if recommendation.decision_type == "RETAINED" else "⭐ RECOMMENDED"
+            if recommendation.manual_override_active:
+                role_badge = "🎯 MANUALLY OVERRIDDEN"
+                card_title = "Manually Selected Service"
+                card_accent = "#D97706"
+            elif recommendation.override_terminated or recommendation.decision_type in (
+                "EMERGENCY_OUTAGE",
+                "EMERGENCY_SLA_VIOLATION",
+            ):
+                role_badge = "🚨 EMERGENCY REPLACEMENT"
+                card_title = "Emergency Replacement Service"
+                card_accent = "#DC2626"
+            elif recommendation.decision_type == "RETAINED":
+                role_badge = "🛡️ AUTOMATICALLY RETAINED"
+                card_title = "Automatically Selected Service"
+                card_accent = "#2563EB"
+            else:
+                role_badge = "🤖 AUTOMATICALLY SELECTED"
+                card_title = "Automatically Selected Service"
+                card_accent = "#2563EB"
             st.markdown(
                 f"""
-                <div class="metric-card" style="border-left: 4px solid #2563EB;">
-                    <div style="font-size:0.82rem; color:#2563EB; font-weight:600; text-transform:uppercase;">Newly Recommended Winner</div>
-                    <div style="font-size:1.15rem; font-weight:700; color:#1E293B; margin:4px 0;">{win.name} ({win.service_id})</div>
+                <div class="metric-card" style="border-left: 4px solid {card_accent};">
+                    <div style="font-size:0.82rem; color:{card_accent}; font-weight:600; text-transform:uppercase;">{card_title}</div>
+                    <div style="font-size:1.15rem; font-weight:700; color:#1E293B; margin:4px 0;">{html.escape(win.name)} ({html.escape(win.service_id)})</div>
                     <div>Status: <b>{w_badge}</b> | Role: <span class="badge-recommended">{role_badge}</span></div>
                     <div style="margin-top:4px; font-size:0.88rem; color:#1D4ED8; font-weight:600;">
                         Aggregate QoS Score: {win_sc.qos_score:.4f} / 1.0000
@@ -1516,6 +1844,27 @@ with tab_history:
         )
     else:
         st.write("No monitoring events recorded yet.")
+
+    st.markdown("---")
+
+    # Operating Mode & Manual Override Event Audit Log
+    ovr_hdr_col, ovr_btn_col = st.columns([0.82, 0.18])
+    with ovr_hdr_col:
+        st.subheader("🎛️ Operating Mode & Manual Override Event Log")
+    with ovr_btn_col:
+        if st.button("🧹 Clear Override Log", key="btn_clear_override_events", use_container_width=True):
+            override_manager.clear_events()
+            st.rerun()
+
+    df_ovr_events = override_manager.get_events_dataframe()
+    if not df_ovr_events.empty:
+        st.dataframe(
+            df_ovr_events.iloc[::-1].reset_index(drop=True),
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.write("No operating mode transitions or manual override events recorded yet.")
 
     st.markdown("---")
 
