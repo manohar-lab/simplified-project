@@ -64,6 +64,24 @@ from src.explainability import (
 )
 
 
+def _render_full_width_kwargs(**extras: Any) -> Dict[str, Any]:
+    """Return forward/backward-compatible full width arguments for st.dataframe and st.plotly_chart.
+
+    Streamlit 1.35+ prefers width='stretch' to eliminate deprecation warnings;
+    older versions fall back to use_container_width=True.
+    """
+    try:
+        import streamlit as _st
+        if tuple(int(x) for x in _st.__version__.split(".")[:2]) >= (1, 35):
+            kwargs: Dict[str, Any] = {"width": "stretch"}
+        else:
+            kwargs = {"use_container_width": True}
+    except Exception:
+        kwargs = {"use_container_width": True}
+    kwargs.update(extras)
+    return kwargs
+
+
 # =========================================================================
 # Page Configuration & Custom CSS Styling
 # =========================================================================
@@ -1521,7 +1539,7 @@ with tab_overview:
     with col_ov_right:
         # Service Health Donut Chart
         donut_fig = build_health_donut_chart(category_services)
-        st.plotly_chart(donut_fig, use_container_width=True)
+        st.plotly_chart(donut_fig, **_render_full_width_kwargs())
 
     st.markdown("---")
 
@@ -1531,7 +1549,7 @@ with tab_overview:
 
     if explanation_data.get("has_recommendation"):
         df_3way = build_three_way_comparison_dataframe(explanation_data)
-        st.dataframe(df_3way, use_container_width=True, hide_index=True)
+        st.dataframe(df_3way, hide_index=True, **_render_full_width_kwargs())
     else:
         st.info("Comparison unavailable because no SLA-compliant service is currently available in this category.")
 
@@ -1544,8 +1562,8 @@ with tab_overview:
     df_candidates = build_candidate_comparison_table(recommendation, evaluator, normalized_weights, category_services)
     st.dataframe(
         df_candidates.style.highlight_max(subset=["Aggregate QoS Score"], color="#DBEAFE"),
-        use_container_width=True,
         hide_index=True,
+        **_render_full_width_kwargs(),
     )
 
 
@@ -1569,7 +1587,7 @@ with tab_analytics:
         recommended_id=recommended_id,
         category=selected_category,
     )
-    st.plotly_chart(fig_bar, use_container_width=True)
+    st.plotly_chart(fig_bar, **_render_full_width_kwargs())
 
     st.markdown("---")
 
@@ -1600,7 +1618,7 @@ with tab_analytics:
                 recommended_id=recommended_id,
                 selected_service_ids=selected_radar_ids,
             )
-            st.plotly_chart(fig_radar, use_container_width=True)
+            st.plotly_chart(fig_radar, **_render_full_width_kwargs())
         else:
             st.warning("Please select at least one service to display the radar chart.")
 
@@ -1621,11 +1639,11 @@ with tab_analytics:
     if metric_mode == "2x2 Grid View":
         g_col1, g_col2 = st.columns(2)
         with g_col1:
-            st.plotly_chart(metric_charts["latency"], use_container_width=True)
-            st.plotly_chart(metric_charts["availability"], use_container_width=True)
+            st.plotly_chart(metric_charts["latency"], **_render_full_width_kwargs())
+            st.plotly_chart(metric_charts["availability"], **_render_full_width_kwargs())
         with g_col2:
-            st.plotly_chart(metric_charts["cost"], use_container_width=True)
-            st.plotly_chart(metric_charts["reliability"], use_container_width=True)
+            st.plotly_chart(metric_charts["cost"], **_render_full_width_kwargs())
+            st.plotly_chart(metric_charts["reliability"], **_render_full_width_kwargs())
     else:
         focused_metric = st.selectbox(
             "Select Metric to Inspect:",
@@ -1637,7 +1655,7 @@ with tab_analytics:
                 "reliability": "Reliability (%) — Higher is Better",
             }[m],
         )
-        st.plotly_chart(metric_charts[focused_metric], use_container_width=True)
+        st.plotly_chart(metric_charts[focused_metric], **_render_full_width_kwargs())
 
 
 # =========================================================================
@@ -1706,7 +1724,7 @@ with tab_failure:
             before=before,
             after=after,
         )
-        st.plotly_chart(fig_ba, use_container_width=True)
+        st.plotly_chart(fig_ba, **_render_full_width_kwargs())
 
         target_obj = simulator.get_service(detail["target_service_id"])
         if target_obj:
@@ -1719,7 +1737,7 @@ with tab_failure:
                     {"Metric": "Reliability", "Baseline": f"{b['reliability']:.2f}%", "Current": f"{target_obj.reliability:.2f}%", "Difference": f"{target_obj.reliability - b['reliability']:+.2f}%"},
                     {"Metric": "Operational Status", "Baseline": b["operational_status"], "Current": target_obj.operational_status, "Difference": "Status Changed" if b["operational_status"] != target_obj.operational_status else "Unchanged"},
                 ]
-                st.dataframe(pd.DataFrame(comp_data), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(comp_data), **_render_full_width_kwargs(), hide_index=True)
 
     else:
         st.info(
@@ -1768,7 +1786,7 @@ with tab_history:
         # Display newest reselection at the top
         st.dataframe(
             df_trail.iloc[::-1].reset_index(drop=True),
-            use_container_width=True,
+            **_render_full_width_kwargs(),
             hide_index=True,
         )
     else:
@@ -1814,7 +1832,7 @@ with tab_history:
     if not df_hist.empty:
         target_name = df_hist.iloc[0]["name"]
         fig_trend = build_history_timeline_chart(df_hist, hist_service_id, target_name)
-        st.plotly_chart(fig_trend, use_container_width=True)
+        st.plotly_chart(fig_trend, **_render_full_width_kwargs())
 
     st.markdown("---")
 
@@ -1839,7 +1857,7 @@ with tab_history:
     if not df_mon_events.empty:
         st.dataframe(
             df_mon_events.iloc[::-1].reset_index(drop=True),
-            use_container_width=True,
+            **_render_full_width_kwargs(),
             hide_index=True,
         )
     else:
@@ -1860,7 +1878,7 @@ with tab_history:
     if not df_ovr_events.empty:
         st.dataframe(
             df_ovr_events.iloc[::-1].reset_index(drop=True),
-            use_container_width=True,
+            **_render_full_width_kwargs(),
             hide_index=True,
         )
     else:
@@ -1884,6 +1902,6 @@ with tab_history:
             },
             inplace=True,
         )
-        st.dataframe(df_events, use_container_width=True, hide_index=True)
+        st.dataframe(df_events, **_render_full_width_kwargs(), hide_index=True)
     else:
         st.write("No simulation events logged yet.")
