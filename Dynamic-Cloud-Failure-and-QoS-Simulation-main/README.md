@@ -1,5 +1,5 @@
 # Dynamic Cloud Failure Detection and QoS-Aware Service Reselection
-## Major Project Demonstration Prototype (Phases 1–5 Complete)
+## Major Project Demonstration Prototype (Phases 1–6 Complete — Release Candidate)
 
 Inspired by the IEEE ICIMIA-2025 paper, *A Hybrid Deep Reinforcement and Swarm Optimization Strategy for Intelligent Cloud Service Composition*.
 
@@ -45,13 +45,13 @@ Dynamic-Cloud-Failure-and-QoS-Simulation/
 │   ├── analytics.py           # Health classification, history tracking, and snapshot builders
 │   └── explainability.py      # Candidate comparison tables, explanations, and audit trail
 └── tests/
-    ├── test_qos_evaluator.py          # QoS normalization and scoring unit tests (9 tests)
+    ├── test_qos_evaluator.py          # QoS normalization and scoring unit tests (7 tests)
     ├── test_failure_simulator.py      # Fault injection and restoration unit tests (6 tests)
     ├── test_recommendation_engine.py  # Basic recommendation engine unit tests (6 tests)
-    ├── test_sla_eligibility.py        # Strict SLA filtering & edge-case unit tests (14 tests)
-    ├── test_hysteresis.py             # Hysteresis delta & cooldown unit tests (15 tests)
-    ├── test_monitoring.py             # Monitoring lifecycle & cycle execution tests (17 tests)
-    ├── test_manual_override.py        # Manual override validation & failover tests (15 tests)
+    ├── test_sla_eligibility.py        # Strict SLA filtering & edge-case unit tests (11 tests)
+    ├── test_hysteresis.py             # Hysteresis delta & cooldown unit tests (14 tests)
+    ├── test_monitoring_engine.py      # Monitoring lifecycle & cycle execution tests (19 tests)
+    ├── test_manual_override.py        # Manual override validation & failover tests (19 tests)
     ├── test_explainability.py         # Explainability and comparison table tests (5 tests)
     ├── test_analytics.py              # Health analytics & history tracker tests (3 tests)
     ├── test_ui_dashboard.py           # Streamlit AppTest dashboard automation tests (12 tests)
@@ -116,21 +116,21 @@ python benchmark_performance.py
 
 ---
 
-## 6. Documented Test Status (Phase 5 Verification)
+## 6. Documented Test Status (Phase 6 Final Verification)
 The automated test suite contains **122 tests** across 12 test modules, all passing:
-- `tests/test_qos_evaluator.py`: 9 passed
+- `tests/test_qos_evaluator.py`: 7 passed
 - `tests/test_failure_simulator.py`: 6 passed
 - `tests/test_recommendation_engine.py`: 6 passed
-- `tests/test_sla_eligibility.py`: 14 passed
-- `tests/test_hysteresis.py`: 15 passed
-- `tests/test_monitoring.py`: 17 passed
-- `tests/test_manual_override.py`: 15 passed
+- `tests/test_sla_eligibility.py`: 11 passed
+- `tests/test_hysteresis.py`: 14 passed
+- `tests/test_monitoring_engine.py`: 19 passed
+- `tests/test_manual_override.py`: 19 passed
 - `tests/test_explainability.py`: 5 passed
 - `tests/test_analytics.py`: 3 passed
 - `tests/test_ui_dashboard.py`: 12 passed
 - `tests/test_e2e_integration_scenarios.py`: 7 passed
 - `tests/test_reliability_edge_cases.py`: 13 passed
-**Result:** **122 passed, 0 failed, 0 skipped**.
+**Result:** **122 passed, 0 failed, 0 skipped (100% pass rate)**.
 
 ---
 
