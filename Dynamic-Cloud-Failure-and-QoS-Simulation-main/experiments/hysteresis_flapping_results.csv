@@ -1,0 +1,3 @@
+threshold_delta,total_switches,unnecessary_switches,justified_switches,stability_percent,average_qos_score
+0.0,59,59,0,41.0,0.7948
+0.05,0,0,0,100.0,0.7911

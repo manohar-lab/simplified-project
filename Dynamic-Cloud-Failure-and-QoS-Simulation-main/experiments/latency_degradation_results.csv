@@ -1,0 +1,8 @@
+injected_delta_ms,current_latency_ms,target_qos_score,sla_limit_ms,sla_compliant,sla_violation_reasons,selected_service_id,selected_service_name,decision_type,reselection_occurred,execution_time_ms
+0,45.0,0.819,100.0,True,[],SVC-C01,NovaCompute Standard,RETAINED,False,0.0929
+15,60.0,0.7717,100.0,True,[],SVC-C01,NovaCompute Standard,RETAINED,False,0.0851
+35,80.0,0.7085,100.0,True,[],SVC-C02,AetherCompute HighPerf,SWITCHED,True,0.0788
+50,95.0,0.6611,100.0,True,[],SVC-C02,AetherCompute HighPerf,SWITCHED,True,0.0726
+65,110.0,0.6138,100.0,False,['Latency SLA violated: 110.0 ms exceeds maximum 100.0 ms.'],SVC-C02,AetherCompute HighPerf,EMERGENCY_SLA_VIOLATION,True,0.0606
+105,150.0,0.5822,100.0,False,['Latency SLA violated: 150.0 ms exceeds maximum 100.0 ms.'],SVC-C02,AetherCompute HighPerf,EMERGENCY_SLA_VIOLATION,True,0.0614
+155,200.0,0.5822,100.0,False,['Latency SLA violated: 200.0 ms exceeds maximum 100.0 ms.'],SVC-C02,AetherCompute HighPerf,EMERGENCY_SLA_VIOLATION,True,0.0544
