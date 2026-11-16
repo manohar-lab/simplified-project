@@ -179,3 +179,4 @@ Automated UI interaction testing executing the actual `app.py` script headless:
 10. `test_ui_10_monitoring_status_and_inspect_now_execution`: Clicks "Inspect Now" and checks cycle increment.
 11. `test_ui_11_dashboard_behaves_consistently_across_failure_restore_and_reset`: Fault injection, restore, reset.
 12. `test_ui_12_sla_breach_during_manual_mode_triggers_emergency_termination`: UI verifies emergency revocation on SLA breach.
+

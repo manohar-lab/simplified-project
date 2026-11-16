@@ -57,3 +57,4 @@ To ensure technical transparency, this document formally delineates the architec
 | **State Persistence** | In-memory session state & trackers | Distributed relational DB / Kafka event store |
 | **Service Composition** | Atomic category-based candidate ranking | Multi-stage DAG workflow orchestration |
 | **Security & Auth** | Single-operator console | Multi-tenant RBAC + OAuth2 / OIDC authentication |
+

@@ -163,3 +163,4 @@ Workload structure:
 2. **QoS-Only Selection** avoids outages, but is fooled by multi-attribute trade-offs, selecting an SLA-violating candidate during Steps 40–59 and flapping 16 times during micro-jitter.
 3. **SLA-Aware No Hysteresis** guarantees SLA compliance, but produces severe switching churn (17 switches).
 4. **Proposed Unified System** achieves the optimal engineering balance: **100% SLA compliance**, **0% outage exposure**, and **94.1% switching reduction** (1 switch vs 17).
+

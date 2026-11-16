@@ -1,12 +1,12 @@
 # Dynamic Cloud Failure Detection and QoS-Aware Service Reselection
-## Major Project Demonstration Prototype (Phases 1–6 Complete — Release Candidate)
+## Major Project Demonstration Prototype (Phases 1–7 Complete — Submission-Ready)
 
 Inspired by the IEEE ICIMIA-2025 paper, *A Hybrid Deep Reinforcement and Swarm Optimization Strategy for Intelligent Cloud Service Composition*.
 
 ---
 
 ## 1. Project Overview
-Modern cloud applications depend on distributed services and third-party APIs. In real-world environments, candidate services experience latency spikes, reduced availability, transient unreliability, or total outages. 
+Modern cloud applications depend on distributed multi-cloud services and third-party APIs. In real-world environments, candidate services experience latency spikes, reduced availability, transient unreliability, or total outages. 
 
 **Dynamic Cloud Failure Detection and QoS-Aware Service Reselection** is an end-to-end Python prototype designed to evaluate candidate cloud services using multi-attribute Quality of Service (QoS) parameters, enforce strict hard Service Level Agreement (SLA) constraints, mitigate service flapping via hysteresis and cooldown thresholds, autonomously monitor service health, support authorized manual service overrides with failover safety, and present explainable reselection decisions in an interactive Streamlit dashboard.
 
@@ -14,46 +14,71 @@ The application runs deterministically on synthetic cloud candidate registries w
 
 ---
 
-## 2. Implemented Capabilities and System Architecture
+## 2. Comprehensive Documentation Suite
 
-### Implemented Core Capabilities
+The complete academic and engineering documentation suite is available in the [`docs/`](docs/) directory:
+
+| Document | Description | Key Contents |
+| :--- | :--- | :--- |
+| [**Final Project Report**](docs/FINAL_PROJECT_REPORT.md) | Comprehensive 25-chapter academic report | Problem formulation, QoS model, SLA validation, hysteresis, monitoring, UI, benchmarks, literature review, and academic submission summary. |
+| [**System Architecture**](docs/SYSTEM_ARCHITECTURE.md) | Architectural specification & 6 Mermaid diagrams | Complete component interaction matrix, data-flow pipelines, state machines, and sequence diagrams. |
+| [**Implementation Details**](docs/IMPLEMENTATION_DETAILS.md) | Module-by-module technical specification | Mathematical formulas, dataclass definitions, function signatures, and algorithmic workflows. |
+| [**Experimental Results**](docs/EXPERIMENTAL_RESULTS.md) | Empirical evaluation & benchmark report | 8 empirical experiments, 100-step comparative baseline study, stability analysis, and scalability profiling. |
+| [**Testing Report**](docs/TESTING_REPORT.md) | Verification and test execution report | Detailed audit of all 122 automated test cases across 12 test suites, AppTest UI automation, and coverage analysis. |
+| [**Known Limitations**](docs/KNOWN_LIMITATIONS.md) | Academic scope boundaries | Explicit documentation of in-memory state, synthetic data boundaries, single-node execution, and future research directions. |
+| [**Project Completion Audit**](docs/PROJECT_COMPLETION_AUDIT.md) | Milestone verification matrix | Line-by-line audit verifying 100% completion of scoped requirements across Phases 1 through 7. |
+
+---
+
+## 3. Implemented Capabilities and System Architecture
+
+### Core Capabilities
 1. **Multi-Attribute QoS Evaluation:** Weighted normalization across latency (ms, lower-is-better), invocation cost (currency, lower-is-better), availability (%, higher-is-better), and reliability (%, higher-is-better) with baseline reference bounds.
 2. **Phase 1 — Strict Hard SLA Filtering:** Centralized SLA configuration (`SLAConfig`) enforcing maximum latency, minimum availability, and minimum reliability thresholds. Services violating any threshold are disqualified regardless of aggregate score.
 3. **Phase 2 — Anti-Flapping Hysteresis & Cooldown:** Centralized hysteresis configuration (`HysteresisConfig`) requiring candidate QoS improvement to exceed a configurable delta (`min_qos_delta`) before switching, with optional step-based and temporal cooldown periods. Outages and SLA violations immediately trigger emergency reselection, bypassing cooldown.
 4. **Phase 3 — Periodic Automatic Monitoring Engine:** Background-capable, non-blocking monitoring engine (`MonitoringEngine`) that reassesses candidate services at configurable intervals, classifies health states (`HEALTHY`, `DEGRADED`, `UNAVAILABLE`, `RECOVERED`), detects outages/SLA violations, and emits deduplicated event logs.
 5. **Phase 4 — Validated Manual Service Override:** Two distinct operating modes (`AUTOMATIC` vs. `MANUAL_OVERRIDE`) managed by `ManualOverrideManager`. Manual selection strictly validates candidate existence, category match, availability, and SLA compliance. In the event of an outage or SLA violation on a manually overridden service, the system immediately terminates the override and performs emergency failover to the best eligible automatic service.
-6. **Decision Explainability & Audit Trail:** Full mathematical breakdown of selection reasons, multi-candidate comparison tables, runner-up score margins, and low-level audit trail dataframes.
+6. **Phase 5 & 6 — Resilience Validation & Benchmarking:** Rigorous reliability hardening, edge-case remediation, and empirical benchmarking across 8 controlled experimental conditions.
+7. **Phase 7 — Academic Submission Readiness:** Complete documentation suite, visual dashboard navigation guides, and 100% verified test suite.
 
 ### Repository Architecture
 ```text
 Dynamic-Cloud-Failure-and-QoS-Simulation/
-├── app.py                     # Streamlit interactive dashboard with operating mode & monitoring panels
-├── benchmark_performance.py   # Performance profiling and scalability benchmark script
-├── requirements.txt           # Core runtime dependencies
-├── README.md                  # System documentation and audit report
+├── app.py                             # Streamlit interactive dashboard with operating mode & monitoring panels
+├── benchmark_performance.py           # Performance profiling and scalability benchmark script
+├── requirements.txt                   # Core runtime dependencies
+├── README.md                          # Project overview and submission documentation
+├── docs/                              # Academic & technical documentation suite
+│   ├── FINAL_PROJECT_REPORT.md        # 25-chapter academic capstone report
+│   ├── SYSTEM_ARCHITECTURE.md         # Component diagrams and data flows
+│   ├── IMPLEMENTATION_DETAILS.md      # Method-level engineering specifications
+│   ├── EXPERIMENTAL_RESULTS.md        # Benchmark data and comparative baseline evaluation
+│   ├── TESTING_REPORT.md              # 122-test automated verification report
+│   ├── KNOWN_LIMITATIONS.md           # Scope boundaries and assumptions
+│   └── PROJECT_COMPLETION_AUDIT.md    # 52-item milestone audit matrix
 ├── src/
-│   ├── __init__.py            # Package root exporting core modules (v1.4.0)
-│   ├── service_registry.py    # CloudService dataclass and synthetic baseline registries
-│   ├── qos_evaluator.py       # Bound normalization and weighted QoS score calculation
-│   ├── sla_config.py          # Centralized SLA thresholds and constraint validation (Phase 1)
-│   ├── hysteresis_config.py   # Hysteresis switching threshold and cooldown logic (Phase 2)
-│   ├── monitoring_config.py   # Periodic monitoring configuration (Phase 3)
-│   ├── monitoring_engine.py   # Periodic health reassessment & event logging engine (Phase 3)
-│   ├── override_manager.py    # Operating mode management & override validation (Phase 4)
-│   ├── failure_simulator.py   # Fault injection (latency, availability, outage) and baseline restore
-│   ├── recommendation_engine.py # Multi-stage SLA, hysteresis, and override recommendation pipeline
-│   ├── analytics.py           # Health classification, history tracking, and snapshot builders
-│   └── explainability.py      # Candidate comparison tables, explanations, and audit trail
+│   ├── __init__.py                    # Package root exporting core modules (v1.4.0)
+│   ├── service_registry.py            # CloudService dataclass and synthetic baseline registries
+│   ├── qos_evaluator.py               # Bound normalization and weighted QoS score calculation
+│   ├── sla_config.py                  # Centralized SLA thresholds and constraint validation (Phase 1)
+│   ├── hysteresis_config.py           # Hysteresis switching threshold and cooldown logic (Phase 2)
+│   ├── monitoring_config.py           # Periodic monitoring configuration (Phase 3)
+│   ├── monitoring_engine.py           # Periodic health reassessment & event logging engine (Phase 3)
+│   ├── override_manager.py            # Operating mode management & override validation (Phase 4)
+│   ├── failure_simulator.py           # Fault injection (latency, availability, outage) and baseline restore
+│   ├── recommendation_engine.py       # Multi-stage SLA, hysteresis, and override recommendation pipeline
+│   ├── analytics.py                   # Health classification, history tracking, and snapshot builders
+│   └── explainability.py              # Candidate comparison tables, explanations, and audit trail
 └── tests/
     ├── test_qos_evaluator.py          # QoS normalization and scoring unit tests (7 tests)
     ├── test_failure_simulator.py      # Fault injection and restoration unit tests (6 tests)
     ├── test_recommendation_engine.py  # Basic recommendation engine unit tests (6 tests)
-    ├── test_sla_eligibility.py        # Strict SLA filtering & edge-case unit tests (11 tests)
-    ├── test_hysteresis.py             # Hysteresis delta & cooldown unit tests (14 tests)
-    ├── test_monitoring_engine.py      # Monitoring lifecycle & cycle execution tests (19 tests)
-    ├── test_manual_override.py        # Manual override validation & failover tests (19 tests)
-    ├── test_explainability.py         # Explainability and comparison table tests (5 tests)
-    ├── test_analytics.py              # Health analytics & history tracker tests (3 tests)
+    ├── test_sla_eligibility.py        # SLA constraint filtering and edge-case unit tests (11 tests)
+    ├── test_hysteresis.py             # Hysteresis threshold and cooldown unit tests (14 tests)
+    ├── test_monitoring_engine.py      # Periodic monitoring and state transition tests (19 tests)
+    ├── test_manual_override.py        # Manual override, validation, and failover tests (19 tests)
+    ├── test_explainability.py         # Decision explainability and audit trail tests (5 tests)
+    ├── test_analytics.py              # Health classification and event history tests (3 tests)
     ├── test_ui_dashboard.py           # Streamlit AppTest dashboard automation tests (12 tests)
     ├── test_e2e_integration_scenarios.py # End-to-end integration scenarios A–G (7 tests)
     └── test_reliability_edge_cases.py    # Reliability and boundary edge-case tests (13 tests)
@@ -61,7 +86,42 @@ Dynamic-Cloud-Failure-and-QoS-Simulation/
 
 ---
 
-## 3. Technology Stack
+## 4. Dashboard Navigation and Visual Layout Guide
+
+The Streamlit dashboard (`app.py`) provides an interactive interface for evaluating cloud services, observing autonomous failover, and testing manual overrides.
+
+### Top Summary KPI Cards
+- **Active Selected Service:** Displays the currently active service ID and name (e.g., `CS-01 (NovaCompute Standard)`).
+- **QoS Score:** Real-time composite score between 0.0000 and 1.0000.
+- **Operating Mode:** Status badge indicating `AUTOMATIC` (green) or `MANUAL_OVERRIDE` (amber).
+- **Service Health:** Badge indicating `HEALTHY` (green), `DEGRADED` (yellow), or `UNAVAILABLE` (red).
+
+### Sidebar Controls
+1. **Operating Mode & Manual Override:**
+   - Radio buttons to toggle between **Automatic Optimization** and **Manual Service Override**.
+   - Service dropdown listing available candidates with compliance status indicators.
+   - Text input for audit override reason and a "Confirm Override" button.
+   - "Release Override" button to safely transition back to automatic mode.
+2. **Dynamic Fault Injection:**
+   - Target candidate selector.
+   - Fault injection buttons: *Inject Latency Spike* (+150 ms), *Degrade Availability* (-25%), *Trigger Total Outage* (0% availability/reliability), and *Restore Healthy Baseline*.
+3. **SLA Configuration:**
+   - Sliders for Maximum Latency (ms), Minimum Availability (%), and Minimum Reliability (%).
+4. **Hysteresis & Anti-Flapping Settings:**
+   - Slider for Minimum QoS Delta ($\Delta H$, default 0.05).
+   - Cooldown period configuration (steps / seconds).
+5. **Periodic Monitoring Controls:**
+   - Interval slider (seconds), Run Monitoring Cycle button, and auto-run toggle.
+
+### Main View Tabs
+- **Tab 1: Live Service Evaluation & Recommendation:** Displays the ranked candidate table, normalized attribute breakdowns, hard SLA eligibility badges, disqualification reasons, and runner-up delta margins.
+- **Tab 2: Service Health & Monitoring Telemetry:** Visual indicators of all registered services, health status distribution, recent state transition alerts, and background monitoring logs.
+- **Tab 3: Comparative QoS Radar & Multi-Attribute Analysis:** Interactive Plotly radar charts and bar charts comparing latency, cost, availability, and reliability trade-offs across candidates.
+- **Tab 4: Audit Logs & Explainability Engine:** Chronological audit trail of all recommendation decisions, switching justifications, override requests, and failover events.
+
+---
+
+## 5. Technology Stack
 - **Language:** Python (3.10+)
 - **Interactive UI:** Streamlit
 - **Data Structures & Processing:** Pandas, NumPy
@@ -71,7 +131,7 @@ Dynamic-Cloud-Failure-and-QoS-Simulation/
 
 ---
 
-## 4. Installation and Setup
+## 6. Installation and Setup
 
 ### Prerequisites
 - Python 3.10, 3.11, 3.12, 3.13, or 3.14
@@ -95,7 +155,7 @@ python -m pip install -r requirements.txt
 
 ---
 
-## 5. Running the Application & Test Suite
+## 7. Running the Application & Test Suite
 
 ### Running the Streamlit Dashboard
 ```powershell
@@ -116,7 +176,7 @@ python benchmark_performance.py
 
 ---
 
-## 6. Documented Test Status (Phase 6 Final Verification)
+## 8. Documented Test Status (Phase 7 Final Verification)
 The automated test suite contains **122 tests** across 12 test modules, all passing:
 - `tests/test_qos_evaluator.py`: 7 passed
 - `tests/test_failure_simulator.py`: 6 passed
@@ -134,7 +194,7 @@ The automated test suite contains **122 tests** across 12 test modules, all pass
 
 ---
 
-## 7. Performance Benchmarks
+## 9. Performance Benchmarks
 Measured via `time.perf_counter()` and `tracemalloc` across 100 repeated cycles (Python 3.14 64-bit on Windows 11):
 - **SLA Eligibility Filtering Latency (10 services):** Mean: `0.016 ms` | Min: `0.008 ms`
 - **QoS Score Evaluation Latency (10 services):** Mean: `0.150 ms` | Min: `0.082 ms`
@@ -150,14 +210,15 @@ Measured via `time.perf_counter()` and `tracemalloc` across 100 repeated cycles 
 
 ---
 
-## 8. Synthetic Data & Research Disclaimer
+## 10. Synthetic Data & Research Disclaimer
 1. **Synthetic Simulation:** All registered cloud services (e.g., NovaCompute Standard, AetherCompute HighPerf, TitanCompute Enterprise), QoS measurements, and failure events are synthetically generated for academic simulation and evaluation.
 2. **No Live Cloud APIs:** This prototype does not connect to live commercial cloud infrastructure (AWS, Azure, GCP), issue billing requests, or manage real virtual machines/containers.
 3. **Reference Paper Context:** The paper *A Hybrid Deep Reinforcement and Swarm Optimization Strategy for Intelligent Cloud Service Composition* (IEEE ICIMIA-2025) provides theoretical motivation. This prototype demonstrates deterministic, observable QoS scoring, SLA constraint enforcement, anti-flapping hysteresis, periodic monitoring, and override safety without training neural networks or swarm heuristics.
 
 ---
 
-## 9. Known Limitations
+## 11. Known Limitations
 - **In-Memory Volatility:** Simulation mutations and override state are held in memory during the execution session and reset upon application restart.
 - **Single-Node Execution:** Monitoring and recommendation pipelines execute in-process on the local host machine.
 - **No User Role-Based Access Control (RBAC):** Manual overrides are accessible to any user interacting with the dashboard session without multi-tenant authentication.
+- For a comprehensive analysis of academic boundaries, see [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md).

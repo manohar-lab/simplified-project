@@ -245,3 +245,4 @@ def _render_full_width_kwargs() -> dict:
     # Passes width='stretch' on Streamlit >= 1.35; use_container_width=True on legacy
 ```
 Ensures 100% clean console logs without Streamlit deprecation warnings.
+

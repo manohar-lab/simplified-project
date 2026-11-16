@@ -277,3 +277,4 @@ sequenceDiagram
 | **`FailureSimulator`** | Target service ID, Fault magnitude | Mutated `CloudService` runtime attributes | `service_registry`, `app.py` |
 | **`Explainability`** | Candidate scores, Historical decisions | Markdown breakdowns, Comparison DataFrames | `app.py` |
 | **`Analytics`** | Snapshot history, Simulation events | Plotly visual figures (Bar, Radar, Timeline) | `app.py` |
+
