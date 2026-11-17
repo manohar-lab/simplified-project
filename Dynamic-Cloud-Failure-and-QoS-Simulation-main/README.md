@@ -1,5 +1,5 @@
 # Dynamic Cloud Failure Detection and QoS-Aware Service Reselection
-## Major Project Demonstration Prototype (Phases 1–7 Complete — Submission-Ready)
+## Major Project Demonstration Prototype (Phases 1–8 Complete — Presentation & Viva Ready)
 
 Inspired by the IEEE ICIMIA-2025 paper, *A Hybrid Deep Reinforcement and Swarm Optimization Strategy for Intelligent Cloud Service Composition*.
 
@@ -14,10 +14,11 @@ The application runs deterministically on synthetic cloud candidate registries w
 
 ---
 
-## 2. Comprehensive Documentation Suite
+## 2. Comprehensive Documentation & Viva Preparation Suite
 
-The complete academic and engineering documentation suite is available in the [`docs/`](docs/) directory:
+The complete academic, engineering, and presentation documentation suite is available in the [`docs/`](docs/) directory:
 
+### Core Academic & Engineering Documentation
 | Document | Description | Key Contents |
 | :--- | :--- | :--- |
 | [**Final Project Report**](docs/FINAL_PROJECT_REPORT.md) | Comprehensive 25-chapter academic report | Problem formulation, QoS model, SLA validation, hysteresis, monitoring, UI, benchmarks, literature review, and academic submission summary. |
@@ -27,6 +28,15 @@ The complete academic and engineering documentation suite is available in the [`
 | [**Testing Report**](docs/TESTING_REPORT.md) | Verification and test execution report | Detailed audit of all 122 automated test cases across 12 test suites, AppTest UI automation, and coverage analysis. |
 | [**Known Limitations**](docs/KNOWN_LIMITATIONS.md) | Academic scope boundaries | Explicit documentation of in-memory state, synthetic data boundaries, single-node execution, and future research directions. |
 | [**Project Completion Audit**](docs/PROJECT_COMPLETION_AUDIT.md) | Milestone verification matrix | Line-by-line audit verifying 100% completion of scoped requirements across Phases 1 through 7. |
+
+### Phase 8 Demonstration, Presentation & Viva Deliverables
+| Document | Description | Key Contents |
+| :--- | :--- | :--- |
+| [**Demonstration Guide**](docs/DEMONSTRATION_GUIDE.md) | Step-by-step 12-minute live demo walkthrough | Prerequisites, dashboard visual layout, step-by-step demonstration sequence (Phases A–G), expected outputs, and troubleshooting. |
+| [**Project Presentation**](docs/PROJECT_PRESENTATION.md) | 15-slide defense presentation outline | Complete slides with titles, bullet points, suggested diagrams/charts, and word-for-word presenter delivery notes. |
+| [**Viva Voce Questions & Answers**](docs/VIVA_QUESTIONS.md) | 55 comprehensive examination Q&As | In-depth answers across 15 technical domains including QoS modeling, SLA filtering, anti-flapping, failover, and architecture. |
+| [**Project Explanations**](docs/PROJECT_EXPLANATION.md) | Faculty verbal delivery scripts | Tailored delivery scripts: 1-minute elevator pitch, 3-minute committee overview, 5-minute technical review, and novel contributions. |
+| [**Final Demonstration Audit**](docs/FINAL_DEMONSTRATION_AUDIT.md) | 14-scenario verification matrix | Detailed audit verifying all 14 demonstration scenarios against actual code execution and AppTest UI tests. |
 
 ---
 
@@ -40,6 +50,7 @@ The complete academic and engineering documentation suite is available in the [`
 5. **Phase 4 — Validated Manual Service Override:** Two distinct operating modes (`AUTOMATIC` vs. `MANUAL_OVERRIDE`) managed by `ManualOverrideManager`. Manual selection strictly validates candidate existence, category match, availability, and SLA compliance. In the event of an outage or SLA violation on a manually overridden service, the system immediately terminates the override and performs emergency failover to the best eligible automatic service.
 6. **Phase 5 & 6 — Resilience Validation & Benchmarking:** Rigorous reliability hardening, edge-case remediation, and empirical benchmarking across 8 controlled experimental conditions.
 7. **Phase 7 — Academic Submission Readiness:** Complete documentation suite, visual dashboard navigation guides, and 100% verified test suite.
+8. **Phase 8 — Final Demonstration & Viva Preparation:** Comprehensive 15-slide defense deck, 55 viva voce examination Q&As, verbal delivery scripts, and verified 14-scenario demonstration audit.
 
 ### Repository Architecture
 ```text
@@ -48,14 +59,19 @@ Dynamic-Cloud-Failure-and-QoS-Simulation/
 ├── benchmark_performance.py           # Performance profiling and scalability benchmark script
 ├── requirements.txt                   # Core runtime dependencies
 ├── README.md                          # Project overview and submission documentation
-├── docs/                              # Academic & technical documentation suite
+├── docs/                              # Academic, technical & presentation documentation suite
 │   ├── FINAL_PROJECT_REPORT.md        # 25-chapter academic capstone report
 │   ├── SYSTEM_ARCHITECTURE.md         # Component diagrams and data flows
 │   ├── IMPLEMENTATION_DETAILS.md      # Method-level engineering specifications
 │   ├── EXPERIMENTAL_RESULTS.md        # Benchmark data and comparative baseline evaluation
 │   ├── TESTING_REPORT.md              # 122-test automated verification report
 │   ├── KNOWN_LIMITATIONS.md           # Scope boundaries and assumptions
-│   └── PROJECT_COMPLETION_AUDIT.md    # 52-item milestone audit matrix
+│   ├── PROJECT_COMPLETION_AUDIT.md    # 52-item milestone audit matrix
+│   ├── DEMONSTRATION_GUIDE.md         # 12-minute live demonstration script
+│   ├── PROJECT_PRESENTATION.md        # 15-slide academic defense presentation outline
+│   ├── VIVA_QUESTIONS.md              # 55 comprehensive viva voce examination Q&As
+│   ├── PROJECT_EXPLANATION.md         # 1-min, 3-min, and 5-min faculty delivery scripts
+│   └── FINAL_DEMONSTRATION_AUDIT.md   # 14-scenario demonstration audit report
 ├── src/
 │   ├── __init__.py                    # Package root exporting core modules (v1.4.0)
 │   ├── service_registry.py            # CloudService dataclass and synthetic baseline registries
@@ -91,7 +107,7 @@ Dynamic-Cloud-Failure-and-QoS-Simulation/
 The Streamlit dashboard (`app.py`) provides an interactive interface for evaluating cloud services, observing autonomous failover, and testing manual overrides.
 
 ### Top Summary KPI Cards
-- **Active Selected Service:** Displays the currently active service ID and name (e.g., `CS-01 (NovaCompute Standard)`).
+- **Active Selected Service:** Displays the currently active service ID and name (e.g., `SVC-C01 (NovaCompute Standard)`).
 - **QoS Score:** Real-time composite score between 0.0000 and 1.0000.
 - **Operating Mode:** Status badge indicating `AUTOMATIC` (green) or `MANUAL_OVERRIDE` (amber).
 - **Service Health:** Badge indicating `HEALTHY` (green), `DEGRADED` (yellow), or `UNAVAILABLE` (red).
@@ -104,7 +120,7 @@ The Streamlit dashboard (`app.py`) provides an interactive interface for evaluat
    - "Release Override" button to safely transition back to automatic mode.
 2. **Dynamic Fault Injection:**
    - Target candidate selector.
-   - Fault injection buttons: *Inject Latency Spike* (+150 ms), *Degrade Availability* (-25%), *Trigger Total Outage* (0% availability/reliability), and *Restore Healthy Baseline*.
+   - Fault injection buttons: *Inject Latency Spike* (+150 ms), *Reduce Availability* (-20%), *Simulate Complete Outage* (0% availability/reliability), and *Restore Service*.
 3. **SLA Configuration:**
    - Sliders for Maximum Latency (ms), Minimum Availability (%), and Minimum Reliability (%).
 4. **Hysteresis & Anti-Flapping Settings:**
@@ -112,6 +128,8 @@ The Streamlit dashboard (`app.py`) provides an interactive interface for evaluat
    - Cooldown period configuration (steps / seconds).
 5. **Periodic Monitoring Controls:**
    - Interval slider (seconds), Run Monitoring Cycle button, and auto-run toggle.
+6. **Global Reset Button:**
+   - Instantly clears all mutations, resets candidate states to default baseline, and restores automatic mode.
 
 ### Main View Tabs
 - **Tab 1: Live Service Evaluation & Recommendation:** Displays the ranked candidate table, normalized attribute breakdowns, hard SLA eligibility badges, disqualification reasons, and runner-up delta margins.
@@ -167,7 +185,7 @@ Open the local URL in a web browser (default: `http://localhost:8501`).
 ```powershell
 python -m pytest tests -v
 ```
-All **122 tests** run deterministically in approximately 15–25 seconds without external server dependencies.
+All **122 tests** run deterministically in approximately 11–15 seconds without external server dependencies.
 
 ### Running Performance Benchmarks
 ```powershell
@@ -176,7 +194,7 @@ python benchmark_performance.py
 
 ---
 
-## 8. Documented Test Status (Phase 7 Final Verification)
+## 8. Documented Test Status (Phase 8 Final Verification)
 The automated test suite contains **122 tests** across 12 test modules, all passing:
 - `tests/test_qos_evaluator.py`: 7 passed
 - `tests/test_failure_simulator.py`: 6 passed
@@ -190,7 +208,7 @@ The automated test suite contains **122 tests** across 12 test modules, all pass
 - `tests/test_ui_dashboard.py`: 12 passed
 - `tests/test_e2e_integration_scenarios.py`: 7 passed
 - `tests/test_reliability_edge_cases.py`: 13 passed
-**Result:** **122 passed, 0 failed, 0 skipped (100% pass rate)**.
+**Result:** **122 passed, 0 failed, 0 skipped (100% pass rate in 14.45s)**.
 
 ---
 
