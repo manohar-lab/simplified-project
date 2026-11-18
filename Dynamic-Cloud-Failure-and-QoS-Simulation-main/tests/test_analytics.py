@@ -1,6 +1,9 @@
 """Unit tests for src/analytics.py covering health classification, history tracking, and charts."""
 
-import pytest
+try:
+    import pytest
+except ImportError:
+    pytest = None
 from src.service_registry import get_default_services, compute_reference_bounds
 from src.qos_evaluator import QoSEvaluator
 from src.failure_simulator import FailureSimulator
@@ -175,3 +178,82 @@ def test_chart_builders():
     fig_timeline = build_history_timeline_chart(df_hist, "SVC-C01", "NovaCompute Standard")
     assert fig_timeline is not None
     assert len(fig_timeline.data) == 4
+
+
+def test_enhanced_charts_respond_to_failure_simulation_and_reselection():
+    """Verify that all four individual metric charts and dashboard charts respond to failures and reselection."""
+    from src.sla_config import SLAConfig
+
+    simulator = FailureSimulator()
+    services = simulator.get_services_by_category("Compute")
+    bounds = compute_reference_bounds(services)
+    evaluator = QoSEvaluator(bounds)
+    sla_config = SLAConfig(max_latency=150.0, min_availability=98.0, min_reliability=98.0)
+
+    # 1. Baseline state with SVC-C01 recommended
+    charts_base = build_individual_metric_charts(
+        services=services,
+        recommended_id="SVC-C01",
+        sla_config=sla_config,
+    )
+    assert len(charts_base) == 4
+    for m in ("latency", "cost", "availability", "reliability"):
+        assert m in charts_base
+        assert len(charts_base[m].data) > 0
+
+    # 2. Simulate Latency Spike on SVC-C01 -> verify latency chart reflects spike and SLA breach
+    simulator.inject_latency_spike("SVC-C01", 200.0)
+    # Reselection switches to SVC-C02
+    charts_spike = build_individual_metric_charts(
+        services=simulator.get_services_by_category("Compute"),
+        recommended_id="SVC-C02",
+        sla_config=sla_config,
+    )
+    # Check that SVC-C02 is marked with the selection star
+    lat_trace = charts_spike["latency"].data[0]
+    assert any("⭐" in text and "SVC-C02" in name for text, name in zip(lat_trace.text, lat_trace.x))
+
+    # 3. Simulate Total Outage on SVC-C01 -> verify availability drops to 0% and offline indicators
+    simulator.simulate_outage("SVC-C01")
+    charts_outage = build_individual_metric_charts(
+        services=simulator.get_services_by_category("Compute"),
+        recommended_id="SVC-C02",
+        sla_config=sla_config,
+    )
+    avail_trace = charts_outage["availability"].data[0]
+    assert any("0.0%" in text for text in avail_trace.text)
+
+    # 4. Verify QoS Comparison Bar Chart distinguishes Outage and Winner
+    fig_bar = build_qos_comparison_chart(
+        services=simulator.get_services_by_category("Compute"),
+        evaluator=evaluator,
+        weights=None,
+        recommended_id="SVC-C02",
+        category="Compute",
+        sla_config=sla_config,
+    )
+    assert fig_bar is not None
+    # Unavailable group should be present in traces
+    trace_names = [t.name for t in fig_bar.data]
+    assert "Recommended" in trace_names
+    assert "Unavailable" in trace_names
+
+    # 5. Verify Health Donut with SLA awareness
+    donut_fig = build_health_donut_chart(
+        services=simulator.get_services_by_category("Compute"),
+        sla_config=sla_config,
+    )
+    assert donut_fig is not None
+    donut_labels = donut_fig.data[0].labels
+    assert "Unavailable" in donut_labels
+
+    # 6. Verify Before/After Chart with Outage
+    fig_ba_outage = build_before_after_chart(
+        target_service_id="SVC-C01",
+        target_service_name="NovaCompute Standard",
+        action="Simulate Outage",
+        before={"latency": 45.0, "availability": 99.9, "reliability": 99.5, "qos_score": 0.81},
+        after={"latency": 45.0, "availability": 0.0, "reliability": 0.0, "qos_score": 0.0, "operational_status": "UNAVAILABLE"},
+    )
+    assert fig_ba_outage is not None
+    assert len(fig_ba_outage.data) >= 4

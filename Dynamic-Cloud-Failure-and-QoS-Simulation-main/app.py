@@ -220,16 +220,20 @@ st.session_state["_is_full_app_render"] = True
 def extract_service_state(svc: CloudService, weights: Dict[str, float]) -> Dict[str, Any]:
     """Capture a dictionary snapshot of a service's raw and scored state."""
     scores = evaluator.evaluate_service(svc, weights)
+    is_outage = (svc.operational_status == "UNAVAILABLE")
     return {
         "service_id": svc.service_id,
         "name": svc.name,
         "category": svc.category,
         "latency": svc.latency,
         "cost": svc.cost,
-        "availability": svc.availability,
-        "reliability": svc.reliability,
+        "availability": 0.0 if is_outage else svc.availability,
+        "raw_availability": svc.availability,
+        "reliability": 0.0 if is_outage else svc.reliability,
+        "raw_reliability": svc.reliability,
         "operational_status": svc.operational_status,
-        "qos_score": scores.qos_score,
+        "qos_score": 0.0 if is_outage else scores.qos_score,
+        "raw_qos_score": scores.qos_score,
         "health_status": classify_service_health(svc),
     }
 
@@ -1538,7 +1542,7 @@ with tab_overview:
 
     with col_ov_right:
         # Service Health Donut Chart
-        donut_fig = build_health_donut_chart(category_services)
+        donut_fig = build_health_donut_chart(category_services, sla_config=active_sla)
         st.plotly_chart(donut_fig, **_render_full_width_kwargs())
 
     st.markdown("---")
@@ -1586,6 +1590,8 @@ with tab_analytics:
         weights=normalized_weights,
         recommended_id=recommended_id,
         category=selected_category,
+        sla_config=active_sla,
+        operating_mode=override_manager.mode,
     )
     st.plotly_chart(fig_bar, **_render_full_width_kwargs())
 
@@ -1601,6 +1607,8 @@ with tab_analytics:
         default_selected = all_cat_ids[:4] if len(all_cat_ids) > 4 else all_cat_ids
         if recommended_id and recommended_id not in default_selected:
             default_selected.append(recommended_id)
+        if target_service_id and target_service_id in all_cat_ids and target_service_id not in default_selected:
+            default_selected.append(target_service_id)
 
         selected_radar_ids = st.multiselect(
             "Select Services to Compare on Radar:",
@@ -1617,6 +1625,8 @@ with tab_analytics:
                 evaluator=evaluator,
                 recommended_id=recommended_id,
                 selected_service_ids=selected_radar_ids,
+                sla_config=active_sla,
+                operating_mode=override_manager.mode,
             )
             st.plotly_chart(fig_radar, **_render_full_width_kwargs())
         else:
@@ -1634,7 +1644,12 @@ with tab_analytics:
         horizontal=True,
     )
 
-    metric_charts = build_individual_metric_charts(category_services)
+    metric_charts = build_individual_metric_charts(
+        services=category_services,
+        recommended_id=recommended_id,
+        sla_config=active_sla,
+        operating_mode=override_manager.mode,
+    )
 
     if metric_mode == "2x2 Grid View":
         g_col1, g_col2 = st.columns(2)
@@ -1692,12 +1707,20 @@ with tab_failure:
 
         f_col1, f_col2, f_col3, f_col4 = st.columns(4)
         with f_col1:
-            st.metric(
-                "Latency Change",
-                f"{after['latency']:.1f} ms",
-                delta=f"{d_lat:+.1f} ms",
-                delta_color="inverse",
-            )
+            if after.get("operational_status") == "UNAVAILABLE":
+                st.metric(
+                    "Latency Change",
+                    "OFFLINE",
+                    delta="Timeout / Down",
+                    delta_color="inverse",
+                )
+            else:
+                st.metric(
+                    "Latency Change",
+                    f"{after['latency']:.1f} ms",
+                    delta=f"{d_lat:+.1f} ms",
+                    delta_color="inverse",
+                )
         with f_col2:
             st.metric(
                 "Availability Change",
