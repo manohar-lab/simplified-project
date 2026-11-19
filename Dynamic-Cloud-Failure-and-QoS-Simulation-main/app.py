@@ -62,6 +62,7 @@ from src.explainability import (
     build_candidate_comparison_table,
     ReselectionAuditTrail,
 )
+from src.database import PersistenceManager
 
 
 def _render_full_width_kwargs(**extras: Any) -> Dict[str, Any]:
@@ -164,10 +165,31 @@ st.markdown(
 
 
 # =========================================================================
-# Session State Initialization
+# Session State & Persistence Layer Initialization (Phase 9)
 # =========================================================================
+if "persistence_manager" not in st.session_state:
+    pm = PersistenceManager()
+    try:
+        pm.initialize()
+    except Exception:
+        pass
+    st.session_state.persistence_manager = pm
+
+persistence_manager: PersistenceManager = st.session_state.persistence_manager
+
 if "simulator" not in st.session_state:
-    st.session_state.simulator = FailureSimulator()
+    default_svcs = get_default_services()
+    try:
+        hydrated_svcs, was_restored = persistence_manager.services.load_services_with_restored_state(default_svcs)
+        sim = FailureSimulator(hydrated_svcs)
+        persisted_sim_events = persistence_manager.simulation_events.get_all_events_chronological()
+        if persisted_sim_events:
+            sim.event_log = persisted_sim_events
+        st.session_state["state_was_restored"] = was_restored
+    except Exception:
+        sim = FailureSimulator()
+        st.session_state["state_was_restored"] = False
+    st.session_state.simulator = sim
 
 if "prev_recommended_id" not in st.session_state:
     st.session_state.prev_recommended_id = None
@@ -182,13 +204,34 @@ if "last_action_detail" not in st.session_state:
     st.session_state.last_action_detail = None
 
 if "history_tracker" not in st.session_state:
-    st.session_state.history_tracker = HistoryTracker()
+    tracker = HistoryTracker()
+    try:
+        persisted_snaps = persistence_manager.snapshots.get_all_snapshots()
+        if persisted_snaps:
+            tracker.snapshots = persisted_snaps
+    except Exception:
+        pass
+    st.session_state.history_tracker = tracker
 
 if "reselection_audit_trail" not in st.session_state:
-    st.session_state.reselection_audit_trail = ReselectionAuditTrail()
+    audit_trail = ReselectionAuditTrail()
+    try:
+        persisted_records = persistence_manager.reselection.get_all_records_chronological()
+        if persisted_records:
+            audit_trail.records = persisted_records
+    except Exception:
+        pass
+    st.session_state.reselection_audit_trail = audit_trail
 
 if "override_manager" not in st.session_state:
-    st.session_state.override_manager = ManualOverrideManager()
+    mgr = ManualOverrideManager()
+    try:
+        persisted_ovr = persistence_manager.override_events.get_all_events_chronological()
+        if persisted_ovr:
+            mgr.event_history = persisted_ovr
+    except Exception:
+        pass
+    st.session_state.override_manager = mgr
 
 if "override_feedback" not in st.session_state:
     st.session_state.override_feedback = None
@@ -199,17 +242,25 @@ reselection_audit_trail: ReselectionAuditTrail = st.session_state.reselection_au
 override_manager: ManualOverrideManager = st.session_state.override_manager
 
 all_services = simulator.get_all_services()
-reference_bounds = compute_reference_bounds(all_services)
+baseline_services = get_default_services()
+reference_bounds = compute_reference_bounds(baseline_services)
 evaluator = QoSEvaluator(reference_bounds)
 engine = RecommendationEngine(evaluator)
 
 if "monitoring_engine" not in st.session_state:
-    st.session_state.monitoring_engine = MonitoringEngine(
+    mon_eng = MonitoringEngine(
         evaluator=evaluator,
         recommendation_engine=engine,
         config=DEFAULT_MONITORING_CONFIG,
         override_manager=override_manager,
     )
+    try:
+        persisted_mon = persistence_manager.monitoring_events.get_all_events_chronological()
+        if persisted_mon:
+            mon_eng.event_history = persisted_mon
+    except Exception:
+        pass
+    st.session_state.monitoring_engine = mon_eng
 
 monitoring_engine: MonitoringEngine = st.session_state.monitoring_engine
 monitoring_engine.override_manager = override_manager
@@ -242,6 +293,28 @@ def extract_service_state(svc: CloudService, weights: Dict[str, float]) -> Dict[
 # Sidebar: Simulation Controls & QoS Priority Sliders
 # =========================================================================
 with st.sidebar:
+    # --- Persistence Status Widget (Phase 9) ---
+    db_summary = persistence_manager.get_summary()
+    is_db_connected = db_summary.get("connected", False)
+    db_badge_bg = "#DCFCE7" if is_db_connected else "#FEE2E2"
+    db_badge_fg = "#166534" if is_db_connected else "#991B1B"
+    state_restored_label = "Restored from DB" if st.session_state.get("state_was_restored") else "Default Baseline"
+    st.markdown(
+        f"""
+        <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-left: 3px solid {'#10B981' if is_db_connected else '#EF4444'}; border-radius: 6px; padding: 7px 11px; margin-bottom: 12px; font-size: 0.8rem; color: #475569;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                <span style="font-weight: 700; color: #1E293B;">💾 SQLite Persistence</span>
+                <span style="background-color: {db_badge_bg}; color: {db_badge_fg}; font-weight: 700; padding: 1px 7px; border-radius: 4px; font-size: 0.72rem;">
+                    {'Connected (v1)' if is_db_connected else 'Offline'}
+                </span>
+            </div>
+            <div>Simulation State: <b>{state_restored_label}</b></div>
+            <div>Monitoring Records: <b>{db_summary.get('total_monitoring_events', 0)}</b> | Reselection Events: <b>{db_summary.get('total_reselection_records', 0)}</b></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     st.header("⚙️ Simulation Controls")
 
     # --- Category Selection ---
@@ -454,11 +527,16 @@ with st.sidebar:
             st.session_state.override_feedback = ("error", new_rec.override_termination_reason)
             st.session_state["_recent_override_terminated"] = True
             trigger_label = f"{trigger_label} -> Emergency Override Termination"
+            try:
+                if override_manager.event_history:
+                    persistence_manager.override_events.save_event(override_manager.event_history[-1])
+            except Exception:
+                pass
 
         if new_rec.decision_type in ("SWITCHED", "EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION"):
             st.session_state.last_switch_step = current_step_idx
 
-        reselection_audit_trail.record_decision(
+        rec_logged = reselection_audit_trail.record_decision(
             trigger_event=trigger_label,
             recommendation=new_rec,
             evaluator=evaluator,
@@ -466,6 +544,12 @@ with st.sidebar:
             prev_service_id=prev_choice_id,
             all_category_services=simulator.get_services_by_category(selected_category),
         )
+        if rec_logged:
+            try:
+                persistence_manager.reselection.save_record(rec_logged)
+            except Exception:
+                pass
+
         st.session_state["_recent_button_action"] = True
         st.rerun()
 
@@ -490,7 +574,7 @@ with st.sidebar:
             "after": after_state,
             "recovered": False,
         }
-        history_tracker.record_snapshot(
+        snap_spike = history_tracker.record_snapshot(
             action=f"Latency Spike (+{spike_val}ms)",
             target_service_id=target_service_id,
             target_service_name=target_svc.name,
@@ -499,6 +583,19 @@ with st.sidebar:
             evaluator=evaluator,
             weights=normalized_weights,
         )
+        try:
+            if target_svc:
+                persistence_manager.services.save_service_state(target_svc)
+            if simulator.event_log:
+                persistence_manager.simulation_events.save_event(
+                    event=simulator.event_log[-1],
+                    injected_latency_change=float(spike_val),
+                    previous_state=before_state,
+                    resulting_state=after_state,
+                )
+            persistence_manager.snapshots.save_snapshot(snap_spike)
+        except Exception:
+            pass
         _finalize_sidebar_action(prev_choice_id, f"Latency Spike (+{spike_val}ms) on {target_service_id}")
 
     if btn_outage and target_service_id:
@@ -521,7 +618,7 @@ with st.sidebar:
             "after": after_state,
             "recovered": False,
         }
-        history_tracker.record_snapshot(
+        snap_outage = history_tracker.record_snapshot(
             action="Service Outage",
             target_service_id=target_service_id,
             target_service_name=target_svc.name,
@@ -530,6 +627,18 @@ with st.sidebar:
             evaluator=evaluator,
             weights=normalized_weights,
         )
+        try:
+            if target_svc:
+                persistence_manager.services.save_service_state(target_svc)
+            if simulator.event_log:
+                persistence_manager.simulation_events.save_event(
+                    event=simulator.event_log[-1],
+                    previous_state=before_state,
+                    resulting_state=after_state,
+                )
+            persistence_manager.snapshots.save_snapshot(snap_outage)
+        except Exception:
+            pass
         _finalize_sidebar_action(prev_choice_id, f"Outage Triggered on {target_service_id}")
 
     if btn_drop and target_service_id:
@@ -552,7 +661,7 @@ with st.sidebar:
             "after": after_state,
             "recovered": False,
         }
-        history_tracker.record_snapshot(
+        snap_drop = history_tracker.record_snapshot(
             action=f"Availability Drop (-{drop_val}%)",
             target_service_id=target_service_id,
             target_service_name=target_svc.name,
@@ -561,6 +670,19 @@ with st.sidebar:
             evaluator=evaluator,
             weights=normalized_weights,
         )
+        try:
+            if target_svc:
+                persistence_manager.services.save_service_state(target_svc)
+            if simulator.event_log:
+                persistence_manager.simulation_events.save_event(
+                    event=simulator.event_log[-1],
+                    injected_availability_change=float(drop_val),
+                    previous_state=before_state,
+                    resulting_state=after_state,
+                )
+            persistence_manager.snapshots.save_snapshot(snap_drop)
+        except Exception:
+            pass
         _finalize_sidebar_action(prev_choice_id, f"Availability Drop (-{drop_val}%) on {target_service_id}")
 
     if btn_restore and target_service_id:
@@ -583,7 +705,7 @@ with st.sidebar:
             "after": after_state,
             "recovered": True,
         }
-        history_tracker.record_snapshot(
+        snap_restore = history_tracker.record_snapshot(
             action="Service Restored",
             target_service_id=target_service_id,
             target_service_name=target_svc.name,
@@ -592,6 +714,18 @@ with st.sidebar:
             evaluator=evaluator,
             weights=normalized_weights,
         )
+        try:
+            if target_svc:
+                persistence_manager.services.save_service_state(target_svc)
+            if simulator.event_log:
+                persistence_manager.simulation_events.save_event(
+                    event=simulator.event_log[-1],
+                    previous_state=before_state,
+                    resulting_state=after_state,
+                )
+            persistence_manager.snapshots.save_snapshot(snap_restore)
+        except Exception:
+            pass
         _finalize_sidebar_action(prev_choice_id, f"Service Restored on {target_service_id}")
 
     if btn_reset:
@@ -610,7 +744,7 @@ with st.sidebar:
             "message": "All services reset to baseline QoS specifications.",
         }
         st.session_state.last_action_detail = None
-        history_tracker.record_snapshot(
+        snap_reset = history_tracker.record_snapshot(
             action="Reset Simulation",
             target_service_id="ALL",
             target_service_name="All Services",
@@ -629,7 +763,7 @@ with st.sidebar:
             current_step=0,
             last_switch_step=None,
         )
-        reselection_audit_trail.record_decision(
+        rec_reset = reselection_audit_trail.record_decision(
             trigger_event="Reset All Services to Baseline",
             recommendation=reset_rec,
             evaluator=evaluator,
@@ -637,6 +771,15 @@ with st.sidebar:
             prev_service_id=None,
             all_category_services=simulator.get_services_by_category(selected_category),
         )
+        try:
+            persistence_manager.services.reset_all_services_to_baseline(get_default_services())
+            if simulator.event_log:
+                persistence_manager.simulation_events.save_event(simulator.event_log[-1])
+            persistence_manager.snapshots.save_snapshot(snap_reset)
+            if rec_reset:
+                persistence_manager.reselection.save_record(rec_reset)
+        except Exception:
+            pass
         st.session_state["_recent_button_action"] = True
         st.rerun()
 
@@ -930,7 +1073,7 @@ if btn_activate_override:
             manual_service_id=chosen_manual_id,
             manual_override_reason=override_manager.reason,
         )
-        history_tracker.record_snapshot(
+        snap_ovr = history_tracker.record_snapshot(
             action="Manual Override Activated",
             target_service_id=chosen_manual_id,
             target_service_name=man_rec.selected_service.name if man_rec.selected_service else chosen_manual_id,
@@ -939,7 +1082,7 @@ if btn_activate_override:
             evaluator=evaluator,
             weights=normalized_weights,
         )
-        reselection_audit_trail.record_decision(
+        rec_ovr = reselection_audit_trail.record_decision(
             trigger_event=f"Manual Override Activated -> {chosen_manual_id}",
             recommendation=man_rec,
             evaluator=evaluator,
@@ -947,6 +1090,14 @@ if btn_activate_override:
             prev_service_id=prior_active_id,
             all_category_services=category_services,
         )
+        try:
+            if override_manager.event_history:
+                persistence_manager.override_events.save_event(override_manager.event_history[-1])
+            persistence_manager.snapshots.save_snapshot(snap_ovr)
+            if rec_ovr:
+                persistence_manager.reselection.save_record(rec_ovr)
+        except Exception:
+            pass
         st.session_state.last_switch_step = len(history_tracker.snapshots)
         st.session_state.prev_recommended_id = chosen_manual_id
         monitoring_engine.sync_external_selection(
@@ -988,7 +1139,7 @@ if btn_clear_override:
         )
         auto_winner_id = auto_rec.selected_service.service_id if auto_rec.selected_service else None
         auto_winner_name = auto_rec.selected_service.name if auto_rec.selected_service else "None"
-        history_tracker.record_snapshot(
+        snap_clr = history_tracker.record_snapshot(
             action="Manual Override Cleared",
             target_service_id=auto_winner_id or "NONE",
             target_service_name=auto_winner_name,
@@ -997,8 +1148,9 @@ if btn_clear_override:
             evaluator=evaluator,
             weights=normalized_weights,
         )
+        rec_clr = None
         if auto_rec.has_eligible_service:
-            reselection_audit_trail.record_decision(
+            rec_clr = reselection_audit_trail.record_decision(
                 trigger_event=f"Manual Override Cleared -> Automatic Mode ({auto_winner_id})",
                 recommendation=auto_rec,
                 evaluator=evaluator,
@@ -1006,6 +1158,14 @@ if btn_clear_override:
                 prev_service_id=prior_manual_id,
                 all_category_services=category_services,
             )
+        try:
+            if override_manager.event_history:
+                persistence_manager.override_events.save_event(override_manager.event_history[-1])
+            persistence_manager.snapshots.save_snapshot(snap_clr)
+            if rec_clr:
+                persistence_manager.reselection.save_record(rec_clr)
+        except Exception:
+            pass
         st.session_state.last_switch_step = len(history_tracker.snapshots)
         st.session_state.prev_recommended_id = auto_winner_id
         monitoring_engine.sync_external_selection(
@@ -1072,6 +1232,11 @@ def _periodic_monitoring_body() -> None:
             respect_interval=False,
             override_manager=override_mgr,
         )
+        if cycle_res is not None and cycle_res.events_emitted:
+            try:
+                persistence_manager.monitoring_events.save_events_batch(cycle_res.events_emitted)
+            except Exception:
+                pass
     else:
         cycle_res = mon.last_cycle_result
 
@@ -1100,7 +1265,7 @@ def _periodic_monitoring_body() -> None:
                 st.session_state.last_switch_step = len(hist.snapshots)
             st.session_state.prev_recommended_id = new_id
 
-            hist.record_snapshot(
+            snap_mon = hist.record_snapshot(
                 action=(
                     "Emergency Override Reselection"
                     if rec_res.override_terminated
@@ -1113,7 +1278,7 @@ def _periodic_monitoring_body() -> None:
                 evaluator=eval_obj,
                 weights=wts,
             )
-            audit.record_decision(
+            rec_mon = audit.record_decision(
                 trigger_event=(
                     f"Emergency Override Failover (Cycle #{cycle_res.cycle_number})"
                     if rec_res.override_terminated
@@ -1125,6 +1290,14 @@ def _periodic_monitoring_body() -> None:
                 prev_service_id=prev_id,
                 all_category_services=cat_svcs,
             )
+            try:
+                persistence_manager.snapshots.save_snapshot(snap_mon)
+                if rec_mon:
+                    persistence_manager.reselection.save_record(rec_mon)
+                if rec_res.override_terminated and override_mgr.event_history:
+                    persistence_manager.override_events.save_event(override_mgr.event_history[-1])
+            except Exception:
+                pass
             st.session_state.last_action_summary = {
                 "action": (
                     "Emergency Manual Override Termination"
@@ -1927,3 +2100,34 @@ with tab_history:
         st.dataframe(df_events, **_render_full_width_kwargs(), hide_index=True)
     else:
         st.write("No simulation events logged yet.")
+
+    st.markdown("---")
+
+    # Persistent Storage Audit Telemetry & Purge (Phase 9)
+    st.subheader("🗄️ Database Persistent Storage Telemetry (Phase 9)")
+    st.caption("Inspect live SQLite database health, record volumes, and perform explicitly confirmed administrative maintenance.")
+    db_sum = persistence_manager.get_summary()
+    pcol1, pcol2, pcol3, pcol4 = st.columns(4)
+    pcol1.metric("Database Status", "Connected (v1)" if db_sum.get("connected") else "Offline")
+    pcol2.metric("Persisted Reselections", db_sum.get("total_reselection_records", 0))
+    pcol3.metric("Persisted Monitoring", db_sum.get("total_monitoring_events", 0))
+    pcol4.metric("Persisted Mutations", db_sum.get("total_simulation_events", 0))
+
+    with st.expander("⚠️ Database Purge Operations (Explicit Confirmation Required)"):
+        st.caption(
+            "Purging the SQLite database is a permanent destructive action. Normal simulation resets "
+            "strictly preserve all historical audit logs. Only use this control when you explicitly want to erase all historical records."
+        )
+        confirm_purge = st.checkbox("I confirm that I want to permanently delete all persisted database records.")
+        if st.button("🗑️ Permanently Delete All Persisted Database History", disabled=not confirm_purge, type="secondary"):
+            persistence_manager.simulation_events.clear_events(confirmed=True)
+            persistence_manager.monitoring_events.clear_events(confirmed=True)
+            persistence_manager.reselection.clear_records(confirmed=True)
+            persistence_manager.override_events.clear_events(confirmed=True)
+            persistence_manager.snapshots.clear_snapshots(confirmed=True)
+            reselection_audit_trail.reset()
+            monitoring_engine.clear_events()
+            override_manager.clear_events()
+            history_tracker.reset()
+            st.success("All historical database records and session histories have been permanently purged.")
+            st.rerun()
