@@ -387,7 +387,7 @@ class ManualOverrideManager:
         if not self.event_history:
             return pd.DataFrame()
         df = pd.DataFrame([e.to_dict() for e in self.event_history])
-        df.rename(
+        df = df.rename(
             columns={
                 "sequence_number": "Seq #",
                 "timestamp": "Timestamp",
@@ -397,8 +397,7 @@ class ManualOverrideManager:
                 "requested_service_id": "Requested Service",
                 "selected_service_id": "Selected Service",
                 "reason": "Transition Details / Reason",
-            },
-            inplace=True,
+            }
         )
         cols = [
             "Seq #",

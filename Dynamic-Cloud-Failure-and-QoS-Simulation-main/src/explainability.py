@@ -670,7 +670,7 @@ class ReselectionAuditTrail:
         rows = [r.to_dict() for r in self.records]
         df = pd.DataFrame(rows)
         # Rename columns to user-friendly names
-        df.rename(
+        df = df.rename(
             columns={
                 "sequence_number": "Seq #",
                 "timestamp": "Timestamp",
@@ -687,7 +687,6 @@ class ReselectionAuditTrail:
                 "cooldown_active": "Cooldown Active",
                 "reselection_reason": "Decision Trigger",
                 "detailed_explanation": "Decision Explanation",
-            },
-            inplace=True,
+            }
         )
         return df

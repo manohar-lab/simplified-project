@@ -863,7 +863,7 @@ class MonitoringEngine:
             return pd.DataFrame()
         rows = [e.to_dict() for e in self.event_history]
         df = pd.DataFrame(rows)
-        df.rename(
+        df = df.rename(
             columns={
                 "sequence_number": "Seq #",
                 "timestamp": "Timestamp",
@@ -875,8 +875,7 @@ class MonitoringEngine:
                 "new_health_state": "New State",
                 "cycle_number": "Cycle #",
                 "reason": "Monitoring Details / Reason",
-            },
-            inplace=True,
+            }
         )
         display_cols = [
             "Seq #",
