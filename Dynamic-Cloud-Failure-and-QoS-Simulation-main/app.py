@@ -1915,15 +1915,14 @@ with tab_history:
     if events:
         df_events = pd.DataFrame(events)
         df_events = df_events.iloc[::-1].reset_index(drop=True)
-        df_events.rename(
+        df_events = df_events.rename(
             columns={
                 "timestamp": "Timestamp",
                 "action": "Action",
                 "service_id": "Service ID",
                 "service_name": "Service Name",
                 "details": "Simulation Details & Outcome",
-            },
-            inplace=True,
+            }
         )
         st.dataframe(df_events, **_render_full_width_kwargs(), hide_index=True)
     else:
