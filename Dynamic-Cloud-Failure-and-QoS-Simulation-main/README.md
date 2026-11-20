@@ -49,22 +49,26 @@ The complete academic, engineering, and presentation documentation suite is avai
 4. **Phase 3 — Periodic Automatic Monitoring Engine:** Background-capable, non-blocking monitoring engine (`MonitoringEngine`) that reassesses candidate services at configurable intervals, classifies health states (`HEALTHY`, `DEGRADED`, `UNAVAILABLE`, `RECOVERED`), detects outages/SLA violations, and emits deduplicated event logs.
 5. **Phase 4 — Validated Manual Service Override:** Two distinct operating modes (`AUTOMATIC` vs. `MANUAL_OVERRIDE`) managed by `ManualOverrideManager`. Manual selection strictly validates candidate existence, category match, availability, and SLA compliance. In the event of an outage or SLA violation on a manually overridden service, the system immediately terminates the override and performs emergency failover to the best eligible automatic service.
 6. **Phase 5 & 6 — Resilience Validation & Benchmarking:** Rigorous reliability hardening, edge-case remediation, and empirical benchmarking across 8 controlled experimental conditions.
-7. **Phase 7 — Academic Submission Readiness:** Complete documentation suite, visual dashboard navigation guides, and 100% verified test suite.
+7. **Phase 7 — Academic Submission Readiness:** Complete documentation suite, cross-document audit verification, visual dashboard navigation guides, and 100% verified test suite.
 8. **Phase 8 — Final Demonstration & Viva Preparation:** Comprehensive 15-slide defense deck, 55 viva voce examination Q&As, verbal delivery scripts, and verified 14-scenario demonstration audit.
+9. **Phase 9 — SQLite Local Persistence & Audit History:** ACID-compliant SQLite persistence layer (`src/database/`) with WAL journaling, schema versioning, foreign keys, transaction rollback, and full history retention across restarts.
 
 ### Repository Architecture
 ```text
 Dynamic-Cloud-Failure-and-QoS-Simulation/
 ├── app.py                             # Streamlit interactive dashboard with operating mode & monitoring panels
 ├── benchmark_performance.py           # Performance profiling and scalability benchmark script
+├── benchmark_persistence.py           # SQLite database persistence profiling benchmark script
 ├── requirements.txt                   # Core runtime dependencies
 ├── README.md                          # Project overview and submission documentation
+├── data/                              # Persistent storage directory
+│   └── cloud_qos_simulation.db        # SQLite database (auto-initialized, WAL mode)
 ├── docs/                              # Academic, technical & presentation documentation suite
 │   ├── FINAL_PROJECT_REPORT.md        # 25-chapter academic capstone report
 │   ├── SYSTEM_ARCHITECTURE.md         # Component diagrams and data flows
 │   ├── IMPLEMENTATION_DETAILS.md      # Method-level engineering specifications
 │   ├── EXPERIMENTAL_RESULTS.md        # Benchmark data and comparative baseline evaluation
-│   ├── TESTING_REPORT.md              # 122-test automated verification report
+│   ├── TESTING_REPORT.md              # 138-test automated verification report
 │   ├── KNOWN_LIMITATIONS.md           # Scope boundaries and assumptions
 │   ├── PROJECT_COMPLETION_AUDIT.md    # 52-item milestone audit matrix
 │   ├── DEMONSTRATION_GUIDE.md         # 12-minute live demonstration script
@@ -73,7 +77,7 @@ Dynamic-Cloud-Failure-and-QoS-Simulation/
 │   ├── PROJECT_EXPLANATION.md         # 1-min, 3-min, and 5-min faculty delivery scripts
 │   └── FINAL_DEMONSTRATION_AUDIT.md   # 14-scenario demonstration audit report
 ├── src/
-│   ├── __init__.py                    # Package root exporting core modules (v1.4.0)
+│   ├── __init__.py                    # Package root exporting core modules (v1.5.0)
 │   ├── service_registry.py            # CloudService dataclass and synthetic baseline registries
 │   ├── qos_evaluator.py               # Bound normalization and weighted QoS score calculation
 │   ├── sla_config.py                  # Centralized SLA thresholds and constraint validation (Phase 1)
@@ -84,17 +88,25 @@ Dynamic-Cloud-Failure-and-QoS-Simulation/
 │   ├── failure_simulator.py           # Fault injection (latency, availability, outage) and baseline restore
 │   ├── recommendation_engine.py       # Multi-stage SLA, hysteresis, and override recommendation pipeline
 │   ├── analytics.py                   # Health classification, history tracking, and snapshot builders
-│   └── explainability.py              # Candidate comparison tables, explanations, and audit trail
+│   ├── explainability.py              # Candidate comparison tables, explanations, and audit trail
+│   └── database/                      # Persistent storage and audit management (Phase 9)
+│       ├── __init__.py                # Database package entrypoint
+│       ├── connection.py              # Thread-isolated SQLite connections and transactions
+│       ├── schema.py                  # Table definitions, version tracking, and indexes
+│       ├── migrations.py              # Automatic idempotent migration runner
+│       └── repositories.py            # Parameterized SQL data access objects
 └── tests/
-    ├── test_qos_evaluator.py          # QoS normalization and scoring unit tests (7 tests)
+    ├── conftest.py                    # Isolated test database fixtures
+    ├── test_qos_evaluator.py          # QoS normalization and scoring unit tests (9 tests)
     ├── test_failure_simulator.py      # Fault injection and restoration unit tests (6 tests)
     ├── test_recommendation_engine.py  # Basic recommendation engine unit tests (6 tests)
-    ├── test_sla_eligibility.py        # SLA constraint filtering and edge-case unit tests (11 tests)
-    ├── test_hysteresis.py             # Hysteresis threshold and cooldown unit tests (14 tests)
-    ├── test_monitoring_engine.py      # Periodic monitoring and state transition tests (19 tests)
-    ├── test_manual_override.py        # Manual override, validation, and failover tests (19 tests)
+    ├── test_sla_eligibility.py        # SLA constraint filtering and edge-case unit tests (14 tests)
+    ├── test_hysteresis.py             # Hysteresis threshold and cooldown unit tests (15 tests)
+    ├── test_monitoring.py             # Periodic monitoring and state transition tests (17 tests)
+    ├── test_manual_override.py        # Manual override, validation, and failover tests (15 tests)
+    ├── test_persistence.py            # SQLite persistence, migrations, and ACID tests (15 tests)
     ├── test_explainability.py         # Decision explainability and audit trail tests (5 tests)
-    ├── test_analytics.py              # Health classification and event history tests (3 tests)
+    ├── test_analytics.py              # Health classification and chart builder tests (4 tests)
     ├── test_ui_dashboard.py           # Streamlit AppTest dashboard automation tests (12 tests)
     ├── test_e2e_integration_scenarios.py # End-to-end integration scenarios A–G (7 tests)
     └── test_reliability_edge_cases.py    # Reliability and boundary edge-case tests (13 tests)
@@ -185,30 +197,32 @@ Open the local URL in a web browser (default: `http://localhost:8501`).
 ```powershell
 python -m pytest tests -v
 ```
-All **122 tests** run deterministically in approximately 11–15 seconds without external server dependencies.
+All **138 tests** run deterministically in approximately 15–20 seconds without external server dependencies.
 
 ### Running Performance Benchmarks
 ```powershell
 python benchmark_performance.py
+python benchmark_persistence.py
 ```
 
 ---
 
-## 8. Documented Test Status (Phase 8 Final Verification)
-The automated test suite contains **122 tests** across 12 test modules, all passing:
-- `tests/test_qos_evaluator.py`: 7 passed
+## 8. Documented Test Status (Authoritative Test Verification)
+The automated test suite contains **138 tests** across 13 test modules, all passing:
+- `tests/test_qos_evaluator.py`: 9 passed
 - `tests/test_failure_simulator.py`: 6 passed
 - `tests/test_recommendation_engine.py`: 6 passed
-- `tests/test_sla_eligibility.py`: 11 passed
-- `tests/test_hysteresis.py`: 14 passed
-- `tests/test_monitoring_engine.py`: 19 passed
-- `tests/test_manual_override.py`: 19 passed
+- `tests/test_sla_eligibility.py`: 14 passed
+- `tests/test_hysteresis.py`: 15 passed
+- `tests/test_monitoring.py`: 17 passed
+- `tests/test_manual_override.py`: 15 passed
+- `tests/test_persistence.py`: 15 passed
 - `tests/test_explainability.py`: 5 passed
-- `tests/test_analytics.py`: 3 passed
+- `tests/test_analytics.py`: 4 passed
 - `tests/test_ui_dashboard.py`: 12 passed
 - `tests/test_e2e_integration_scenarios.py`: 7 passed
 - `tests/test_reliability_edge_cases.py`: 13 passed
-**Result:** **122 passed, 0 failed, 0 skipped (100% pass rate in 14.45s)**.
+**Result:** **138 passed, 0 failed, 0 skipped (100% pass rate in ~20.07s)**.
 
 ---
 

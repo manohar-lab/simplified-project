@@ -16,10 +16,11 @@ To ensure technical transparency, this document formally delineates the architec
 
 ## 2. Verified Technical Limitations
 
-### 2.1 In-Memory Session Volatility
-- **Limitation:** All simulation mutations (injected latency spikes, simulated outages), historical metric snapshots (`HistoryTracker`), and audit event logs (`ReselectionAuditTrail`, `MonitoringEngine`, `ManualOverrideManager`) are stored in volatile runtime memory (`st.session_state` and Python heap memory).
-- **Impact:** Terminating or restarting the Streamlit application process resets all services to baseline and clears the audit logs.
-- **Production Countermeasure:** In production environments, audit logs and state machines would be persisted to a relational database (e.g., PostgreSQL / Neon) or an append-only event stream (e.g., Apache Kafka).
+### 2.1 In-Memory Session Volatility [RESOLVED BY PHASE 9]
+- **Status:** **Resolved in Phase 9 via ACID SQLite Local Persistence.**
+- **Implementation:** The persistence layer (`src/database/`) records all service state mutations, fault injection logs, periodic monitoring cycles, reselection audit records, and manual override transitions into a thread-safe, WAL-journaled SQLite database (`data/cloud_qos_simulation.db`).
+- **Restart Recovery:** When the application restarts, service states and historical audit records are restored from SQLite, surviving process termination while strictly preserving immutable baseline normalization bounds. A dedicated purge operation with explicit checkbox confirmation is provided for administrative resets.
+- **Enterprise Note:** In distributed multi-region deployments, this local SQLite database can be swapped for an enterprise distributed database (e.g., PostgreSQL / CockroachDB) or event stream (e.g., Apache Kafka).
 
 ### 2.2 Synthetic Cloud Telemetry
 - **Limitation:** Candidate cloud service parameters (latency, cost, availability, reliability) and failure events are synthetically generated.
@@ -54,7 +55,7 @@ To ensure technical transparency, this document formally delineates the architec
 | **SLA Filtering** | Hard boundary constraint disqualification | Dynamic contract negotiation + penalty calculators |
 | **Hysteresis Damping** | Threshold delta ($\Delta Q$) + step cooldown | Adaptive thresholding based on historical variance |
 | **Fault Injection** | Controlled synthetic mutation | Chaos engineering (e.g., Chaos Mesh, Gremlin) |
-| **State Persistence** | In-memory session state & trackers | Distributed relational DB / Kafka event store |
+| **State Persistence** | Local SQLite ACID persistence (`src/database/`) | Distributed relational DB / Kafka event store |
 | **Service Composition** | Atomic category-based candidate ranking | Multi-stage DAG workflow orchestration |
 | **Security & Auth** | Single-operator console | Multi-tenant RBAC + OAuth2 / OIDC authentication |
 

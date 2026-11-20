@@ -284,11 +284,12 @@ Evaluated on Windows 11 (Python 3.14.3, 10-core CPU, 15.69 GB RAM) using `experi
 
 ## Chapter 21: Testing and Validation
 
-All 122 automated tests pass with 100% success rate:
-- **Unit Tests:** `test_service_registry` (4), `test_qos_evaluator` (7), `test_sla_eligibility` (11), `test_hysteresis` (14), `test_monitoring_engine` (19), `test_manual_override` (19), `test_failure_simulator` (6), `test_recommendation_engine` (6), `test_explainability` (5), `test_analytics` (3).
-- **Integration Tests:** `test_e2e_integration_scenarios` (7).
-- **Edge Case Tests:** `test_reliability_edge_cases` (13).
-- **UI Automation:** `test_ui_dashboard` (12 headless `AppTest` test cases).
+All 138 automated tests pass with 100% success rate across 13 test suites:
+- **Unit Tests:** `test_service_registry` (via baseline models), `test_qos_evaluator` (9), `test_sla_eligibility` (14), `test_hysteresis` (15), `test_monitoring` (17), `test_manual_override` (15), `test_failure_simulator` (6), `test_recommendation_engine` (6), `test_explainability` (5), `test_analytics` (4).
+- **Persistence & Audit Tests (Phase 9):** `test_persistence` (15 automated ACID, SQLite pragma, recovery, and migration tests).
+- **Integration Tests:** `test_e2e_integration_scenarios` (7 comprehensive operational lifecycle scenarios A–G).
+- **Edge Case Tests:** `test_reliability_edge_cases` (13 extreme boundary and fault-tolerance tests).
+- **UI Automation:** `test_ui_dashboard` (12 headless Streamlit `AppTest` automated browser interaction tests).
 
 ---
 
@@ -297,24 +298,25 @@ All 122 automated tests pass with 100% success rate:
 ### Advantages
 1. Deterministic, mathematically explainable recommendations.
 2. Strict SLA safety guarantees.
-3. High switching stability via hysteresis damping.
-4. Sub-millisecond execution latency.
-5. Zero memory leaks and linear scalability.
+3. High switching stability via hysteresis damping (100% reduction in micro-jitter flapping).
+4. Sub-millisecond execution latency ($< 0.1\text{ ms}$).
+5. Zero memory leaks and linear scalability up to 1,000 services ($17.7\text{ ms}$).
+6. ACID-compliant persistent local storage (Phase 9 SQLite database with WAL mode and transaction rollback).
 
 ### Limitations
-1. In-memory session state resets on application restart.
-2. Synthetic cloud metrics rather than live AWS/Azure APIs.
+1. Single-node local simulation rather than distributed multi-node cluster deployment.
+2. Synthetic cloud metrics rather than live AWS CloudWatch / Azure Monitor API telemetry.
 3. Atomic single service selection rather than multi-service DAG composition.
-4. Single-operator console without multi-user RBAC.
+4. Single-operator console without multi-user role-based access control (RBAC).
 
 ---
 
 ## Chapter 23: Future Enhancements
 
-1. **Persistent State Storage:** Integrate PostgreSQL or Apache Kafka for permanent audit logging.
-2. **Live Cloud API Connectors:** Poll AWS CloudWatch and Azure Monitor for real telemetry.
-3. **Composite DAG Workflow Engine:** Extend reselection to multi-stage workflow graphs.
-4. **Multi-User RBAC & OAuth2:** Enforce role-based access control for manual override actions.
+1. **Distributed Event Streaming:** Integrate Apache Kafka or RabbitMQ for high-throughput enterprise event streaming.
+2. **Live Cloud API Connectors:** Poll AWS CloudWatch, Google Cloud Monitoring, and Azure Monitor for real telemetry.
+3. **Composite DAG Workflow Engine:** Extend reselection to multi-stage workflow graphs and dependency DAGs.
+4. **Multi-User RBAC & OAuth2:** Enforce role-based access control and JWT authentication for manual override actions.
 5. **Predictive SLA Violation Early-Warning:** Use time-series forecasting (ARIMA / LSTM) to detect degradation trends before SLA breach occurs.
 
 ---
