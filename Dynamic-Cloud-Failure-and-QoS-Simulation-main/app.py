@@ -84,11 +84,11 @@ def _render_full_width_kwargs(**extras: Any) -> Dict[str, Any]:
 
 
 # =========================================================================
-# Page Configuration & Custom CSS Styling
+# Page Configuration & Cloud Command Center Theme
 # =========================================================================
 st.set_page_config(
-    page_title="Dynamic Cloud Failure & QoS Reselection",
-    page_icon="☁️",
+    page_title="Cloud Command Center | Dynamic QoS Reselection",
+    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -96,73 +96,241 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    .main-title {
-        font-size: 2.1rem;
+    /* Dark Command Center Base */
+    .stApp {
+        background: #0B1120;
+        color: #F1F5F9;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    
+    /* Global Card */
+    .command-card {
+        background: #0F172A;
+        border: 1px solid #1E293B;
+        border-radius: 10px;
+        padding: 16px 20px;
+        margin-bottom: 14px;
+        transition: all 0.2s ease-in-out;
+    }
+    .command-card:hover {
+        border-color: #334155;
+    }
+
+    /* Active Glowing Card */
+    .command-card-active {
+        background: #0F172A;
+        border: 2px solid #38BDF8 !important;
+        border-radius: 10px;
+        padding: 16px 20px;
+        margin-bottom: 14px;
+        box-shadow: 0 0 20px rgba(56, 189, 248, 0.25);
+    }
+
+    /* System Health Banner */
+    .health-banner {
+        border-radius: 10px;
+        padding: 14px 20px;
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border: 1px solid #334155;
+    }
+
+    /* Badges */
+    .badge-healthy {
+        background: rgba(16, 185, 129, 0.2);
+        color: #34D399;
+        border: 1px solid rgba(16, 185, 129, 0.4);
+        padding: 3px 10px;
+        border-radius: 999px;
         font-weight: 700;
-        color: #1E293B;
-        margin-bottom: 0.2rem;
+        font-size: 0.8rem;
+        display: inline-block;
     }
-    .sub-title {
-        font-size: 0.95rem;
-        color: #475569;
-        margin-bottom: 1.2rem;
+    .badge-degraded {
+        background: rgba(245, 158, 11, 0.2);
+        color: #FBBF24;
+        border: 1px solid rgba(245, 158, 11, 0.4);
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: 0.8rem;
+        display: inline-block;
     }
+    .badge-outage {
+        background: rgba(239, 68, 68, 0.2);
+        color: #F87171;
+        border: 1px solid rgba(239, 68, 68, 0.4);
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: 0.8rem;
+        display: inline-block;
+    }
+    .badge-active-role {
+        background: rgba(56, 189, 248, 0.25);
+        color: #38BDF8;
+        border: 1px solid #38BDF8;
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-weight: 800;
+        font-size: 0.8rem;
+        display: inline-block;
+        box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+    }
+    .badge-standby-role {
+        background: rgba(148, 163, 184, 0.15);
+        color: #94A3B8;
+        border: 1px solid #475569;
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-weight: 600;
+        font-size: 0.8rem;
+        display: inline-block;
+    }
+
+    /* Progress bar for QoS */
+    .qos-bar-bg {
+        background: #1E293B;
+        border-radius: 6px;
+        height: 8px;
+        width: 100%;
+        overflow: hidden;
+        margin-top: 6px;
+    }
+    .qos-bar-fill {
+        background: linear-gradient(90deg, #0284C7, #38BDF8);
+        height: 100%;
+        border-radius: 6px;
+    }
+
+    /* Workflow Stepper */
+    .stepper-container {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin: 16px 0;
+        position: relative;
+    }
+    .step-node {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        z-index: 2;
+        text-align: center;
+    }
+    .step-circle-done {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: #0284C7;
+        color: #FFFFFF;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 0.85rem;
+        box-shadow: 0 0 10px rgba(2, 132, 199, 0.5);
+    }
+    .step-circle-active {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: #10B981;
+        color: #FFFFFF;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 0.85rem;
+        box-shadow: 0 0 12px rgba(16, 185, 129, 0.7);
+        animation: pulse-ring 2s infinite;
+    }
+    .step-circle-idle {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: #1E293B;
+        color: #64748B;
+        border: 1px solid #334155;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 0.85rem;
+    }
+    .step-label {
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #94A3B8;
+        margin-top: 6px;
+        max-width: 90px;
+    }
+
+    /* Pulse animation */
+    @keyframes pulse-ring {
+        0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+        70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+    
+    .pulse-dot {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 8px;
+        animation: pulse-ring 2s infinite;
+    }
+
+    /* Retain compatibility classes */
     .metric-card {
-        background: #F8FAFC;
-        border: 1px solid #E2E8F0;
+        background: #0F172A;
+        border: 1px solid #1E293B;
         border-radius: 8px;
         padding: 12px 16px;
     }
     .badge-available {
-        background-color: #DCFCE7;
-        color: #15803D;
-        padding: 3px 8px;
-        border-radius: 6px;
-        font-weight: 600;
-        font-size: 0.85rem;
-    }
-    .badge-degraded {
-        background-color: #FEF3C7;
-        color: #B45309;
-        padding: 3px 8px;
-        border-radius: 6px;
-        font-weight: 600;
-        font-size: 0.85rem;
-    }
-    .badge-unavailable {
-        background-color: #FEE2E2;
-        color: #B91C1C;
+        background-color: rgba(16, 185, 129, 0.2);
+        color: #34D399;
         padding: 3px 8px;
         border-radius: 6px;
         font-weight: 600;
         font-size: 0.85rem;
     }
     .badge-recommended {
-        background-color: #DBEAFE;
-        color: #1D4ED8;
+        background-color: rgba(56, 189, 248, 0.25);
+        color: #38BDF8;
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 0.85rem;
+    }
+    .badge-unavailable {
+        background-color: rgba(239, 68, 68, 0.2);
+        color: #F87171;
         padding: 3px 8px;
         border-radius: 6px;
         font-weight: 600;
         font-size: 0.85rem;
     }
     .explain-card {
-        background: #FFFFFF;
-        border: 1px solid #E2E8F0;
-        border-left: 4px solid #2563EB;
+        background: #0F172A;
+        border: 1px solid #1E293B;
+        border-left: 4px solid #38BDF8;
         border-radius: 6px;
         padding: 14px 18px;
         margin-bottom: 12px;
     }
     .section-desc {
-        color: #64748B;
+        color: #94A3B8;
         font-size: 0.9rem;
         margin-bottom: 1rem;
     }
     </style>
-    """,
-    unsafe_allow_html=True,
+    """
 )
-
 
 # =========================================================================
 # Session State & Persistence Layer Initialization (Phase 9)
@@ -931,487 +1099,799 @@ if st.session_state.last_action_summary:
 
 
 # =========================================================================
-# Operating Mode & Manual Service Override Control (Phase 4)
+
 # =========================================================================
-st.markdown("### 🎛️ Operating Mode & Service Selection Control")
+# CLOUD COMMAND CENTER — TOP SYSTEM HEALTH & TELEMETRY
+# =========================================================================
 
-eligible_pairs = recommendation.ranked_eligible
-eligible_service_ids = [s.service_id for s, _ in eligible_pairs]
-eligible_labels = {
-    s.service_id: f"{s.service_id} - {s.name} (QoS: {sc.qos_score:.4f} | Lat: {s.latency:.1f}ms)"
-    for s, sc in eligible_pairs
-}
+# Check overall cloud system health
+any_outage = any(s.operational_status == "UNAVAILABLE" for s in category_services)
+any_degraded = any(classify_service_health(s, active_sla) == HEALTH_DEGRADED for s in category_services)
 
-active_mode = MODE_MANUAL if recommendation.manual_override_active else MODE_AUTOMATIC
-mode_bg = "#F3E8FF" if active_mode == MODE_MANUAL else "#DBEAFE"
-mode_fg = "#6B21A8" if active_mode == MODE_MANUAL else "#1E40AF"
-mode_icon = "🎯" if active_mode == MODE_MANUAL else "🤖"
-
-if not recommendation.has_eligible_service or recommendation.selected_service is None:
-    sel_summary_txt = "None (No SLA-Compliant Service Available)"
-    sel_kind_txt = "Unavailable / All Ineligible"
-elif recommendation.decision_type == "MANUAL_OVERRIDE":
-    sel_summary_txt = f"{recommendation.selected_service.service_id} - {recommendation.selected_service.name}"
-    sel_kind_txt = "Manually Overridden Service"
-elif recommendation.decision_type in ("EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION") or recent_override_terminated:
-    sel_summary_txt = f"{recommendation.selected_service.service_id} - {recommendation.selected_service.name}"
-    sel_kind_txt = "Emergency Replacement Service"
+if any_outage:
+    sys_status_label = "CRITICAL OUTAGE DETECTED"
+    sys_status_color = "#EF4444"
+    sys_status_bg = "rgba(239, 68, 68, 0.12)"
+    sys_icon = "🔴"
+    sys_desc = "One or more cloud services have suffered complete operational outages. Emergency failover router is active."
+elif any_degraded:
+    sys_status_label = "PERFORMANCE DEGRADATION"
+    sys_status_color = "#F59E0B"
+    sys_status_bg = "rgba(245, 158, 11, 0.12)"
+    sys_icon = "🟡"
+    sys_desc = "QoS latency or availability degradation detected. Anti-flapping hysteresis evaluation engaged."
 else:
-    sel_summary_txt = f"{recommendation.selected_service.service_id} - {recommendation.selected_service.name}"
-    sel_kind_txt = "Automatically Selected Service"
+    sys_status_label = "ALL SYSTEMS NOMINAL"
+    sys_status_color = "#10B981"
+    sys_status_bg = "rgba(16, 185, 129, 0.12)"
+    sys_icon = "🟢"
+    sys_desc = "Cloud infrastructure running stably within nominal SLA boundaries. Continuous telemetry active."
 
-auto_best = recommendation.automatic_best_service
-auto_best_score = recommendation.automatic_best_score
-auto_ref_txt = (
-    f"{auto_best.service_id} - {auto_best.name} (QoS: {auto_best_score.qos_score:.4f})"
-    if auto_best is not None and auto_best_score is not None
-    else "None Available"
-)
-sla_status_txt = (
-    f"Compliant ({len(eligible_pairs)}/{len(category_services)} eligible)"
-    if len(eligible_pairs) > 0
-    else f"No Compliant Service (0/{len(category_services)} eligible)"
-)
+rec_active_id = recommendation.selected_service.service_id if recommendation.selected_service else "NONE"
+rec_active_name = recommendation.selected_service.name if recommendation.selected_service else "None Available"
+is_monitoring_live = monitoring_engine.is_active
 
+# 1. Top Header & Large Health Banner
 st.markdown(
     f"""
-    <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 10px 14px; margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 18px; align-items: center;">
-        <span style="background-color: {mode_bg}; color: {mode_fg}; font-weight: 700; padding: 3px 10px; border-radius: 999px; font-size: 0.85rem;">
-            {mode_icon} Mode: {html.escape(active_mode)}
-        </span>
-        <span style="color: #1E293B; font-size: 0.9rem;">Active Selection: <b>{html.escape(sel_summary_txt)}</b> <i>({html.escape(sel_kind_txt)})</i></span>
-        <span style="color: #475569; font-size: 0.9rem;">Automatic Rank #1: <b>{html.escape(auto_ref_txt)}</b></span>
-        <span style="color: #475569; font-size: 0.9rem;">SLA Compliance: <b>{html.escape(sla_status_txt)}</b></span>
-        <span style="color: #475569; font-size: 0.9rem;">Manual Override: <b>{"ACTIVE" if override_manager.is_manual_active else "INACTIVE"}</b></span>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1px solid #1E293B; padding-bottom:10px;">
+        <div>
+            <div style="font-size:1.75rem; font-weight:800; color:#F8FAFC; letter-spacing:-0.5px;">
+                ⚡ CLOUD COMMAND CENTER
+            </div>
+            <div style="font-size:0.88rem; color:#94A3B8;">
+                Dynamic Cloud Failure Detection &amp; QoS-Aware Service Reselection Platform
+            </div>
+        </div>
+        <div style="display:flex; gap:12px; align-items:center;">
+            <span style="background:#1E293B; color:#94A3B8; font-size:0.8rem; padding:4px 12px; border-radius:6px; border:1px solid #334155;">
+                Category: <strong style="color:#F8FAFC;">{selected_category}</strong>
+            </span>
+            <span style="background:{'rgba(16, 185, 129, 0.2)' if is_monitoring_live else 'rgba(245, 158, 11, 0.2)'}; color:{'#34D399' if is_monitoring_live else '#FBBF24'}; font-size:0.8rem; padding:4px 12px; border-radius:6px; border:1px solid {'#10B981' if is_monitoring_live else '#F59E0B'};">
+                <span class="pulse-dot" style="background:{'#10B981' if is_monitoring_live else '#F59E0B'};"></span>
+                Monitoring: <strong>{'ACTIVE' if is_monitoring_live else 'PAUSED'}</strong>
+            </span>
+        </div>
+    </div>
+    
+    <!-- Large Cloud Health Indicator Banner -->
+    <div class="health-banner" style="background:{sys_status_bg}; border-color:{sys_status_color};">
+        <div style="display:flex; align-items:center; gap:16px;">
+            <span style="font-size:2rem;">{sys_icon}</span>
+            <div>
+                <div style="font-size:1.15rem; font-weight:800; color:{sys_status_color}; letter-spacing:0.5px;">
+                    SYSTEM STATUS: {sys_status_label}
+                </div>
+                <div style="font-size:0.85rem; color:#CBD5E1;">
+                    {sys_desc}
+                </div>
+            </div>
+        </div>
+        <div style="text-align:right;">
+            <div style="font-size:0.75rem; color:#94A3B8; text-transform:uppercase; font-weight:700;">Active Selected Provider</div>
+            <div style="font-size:1.25rem; font-weight:800; color:#38BDF8;">{rec_active_id} — {rec_active_name}</div>
+        </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
-st.caption(f"**Selection Reason:** {recommendation.decision_reason}")
 
-feedback = st.session_state.pop("override_feedback", None)
-if feedback is not None:
-    fb_level, fb_msg = feedback
-    if fb_level == "error":
-        st.error(f"🛑 {fb_msg}")
-    elif fb_level == "success":
-        st.success(f"✅ {fb_msg}")
-    else:
-        st.info(f"ℹ️ {fb_msg}")
-
-ov_col1, ov_col2, ov_col3, ov_col4 = st.columns([0.36, 0.28, 0.18, 0.18])
-with ov_col1:
-    if eligible_service_ids:
-        default_ov_idx = 0
-        if override_manager.is_manual_active and override_manager.requested_service_id in eligible_service_ids:
-            default_ov_idx = eligible_service_ids.index(override_manager.requested_service_id)
-        chosen_manual_id = st.selectbox(
-            "Eligible Services for Manual Selection",
-            options=eligible_service_ids,
-            index=default_ov_idx,
-            format_func=lambda sid: eligible_labels.get(sid, sid),
-            key="manual_override_target_select",
-            help="Only operationally AVAILABLE and SLA-compliant candidates in the active category are selectable.",
-        )
-    else:
-        st.selectbox(
-            "Eligible Services for Manual Selection",
-            options=["NONE_ELIGIBLE"],
-            index=0,
-            format_func=lambda _: "No eligible SLA-compliant services available",
-            disabled=True,
-            key="manual_override_target_select",
-        )
-        chosen_manual_id = None
-
-with ov_col2:
-    manual_reason_text = st.text_input(
-        "Override Reason (Optional)",
-        value=override_manager.reason if override_manager.is_manual_active else "",
-        placeholder="e.g., Operator preference / maintenance check",
-        key="manual_override_reason_input",
-    )
-
-with ov_col3:
-    st.markdown("<div style='margin-top: 26px;'></div>", unsafe_allow_html=True)
-    btn_activate_override = st.button(
-        "🎯 Activate Manual Override",
-        key="btn_activate_manual_override",
-        use_container_width=True,
-        disabled=(len(eligible_service_ids) == 0),
-    )
-
-with ov_col4:
-    st.markdown("<div style='margin-top: 26px;'></div>", unsafe_allow_html=True)
-    btn_clear_override = st.button(
-        "🔄 Return to Automatic",
-        key="btn_clear_manual_override",
-        use_container_width=True,
-        disabled=(not override_manager.is_manual_active),
-    )
-
-if btn_activate_override:
-    prior_active_id = recommended_id
-    ok_ov, msg_ov, _ = override_manager.request_manual_override(
-        services=all_services,
-        category=selected_category,
-        requested_service_id=chosen_manual_id,
-        sla_config=active_sla,
-        reason=manual_reason_text,
-    )
-    if ok_ov and chosen_manual_id is not None:
-        man_rec = engine.recommend(
-            services=all_services,
-            category=selected_category,
-            weights=normalized_weights,
-            previously_selected_id=prior_active_id,
-            sla_config=active_sla,
-            hysteresis_config=active_hysteresis,
-            current_step=len(history_tracker.snapshots),
-            last_switch_step=st.session_state.last_switch_step,
-            operating_mode=MODE_MANUAL,
-            manual_service_id=chosen_manual_id,
-            manual_override_reason=override_manager.reason,
-        )
-        snap_ovr = history_tracker.record_snapshot(
-            action="Manual Override Activated",
-            target_service_id=chosen_manual_id,
-            target_service_name=man_rec.selected_service.name if man_rec.selected_service else chosen_manual_id,
-            message=msg_ov,
-            services=simulator.get_all_services(),
-            evaluator=evaluator,
-            weights=normalized_weights,
-        )
-        rec_ovr = reselection_audit_trail.record_decision(
-            trigger_event=f"Manual Override Activated -> {chosen_manual_id}",
-            recommendation=man_rec,
-            evaluator=evaluator,
-            weights=normalized_weights,
-            prev_service_id=prior_active_id,
-            all_category_services=category_services,
-        )
-        try:
-            if override_manager.event_history:
-                persistence_manager.override_events.save_event(override_manager.event_history[-1])
-            persistence_manager.snapshots.save_snapshot(snap_ovr)
-            if rec_ovr:
-                persistence_manager.reselection.save_record(rec_ovr)
-        except Exception:
-            pass
-        st.session_state.last_switch_step = len(history_tracker.snapshots)
-        st.session_state.prev_recommended_id = chosen_manual_id
-        monitoring_engine.sync_external_selection(
-            category=selected_category,
-            selected_id=chosen_manual_id,
-            switch_step=st.session_state.last_switch_step,
-        )
-        st.session_state.last_action_summary = {
-            "action": "Manual Override Activated",
-            "service_id": chosen_manual_id,
-            "service_name": man_rec.selected_service.name if man_rec.selected_service else chosen_manual_id,
-            "before": prior_active_id or "None",
-            "after": chosen_manual_id,
-            "message": msg_ov,
-        }
-        st.session_state.override_feedback = ("success", msg_ov)
-        st.session_state["_recent_button_action"] = True
-        st.rerun()
-    else:
-        st.session_state.override_feedback = ("error", msg_ov)
-        st.rerun()
-
-if btn_clear_override:
-    prior_manual_id = override_manager.requested_service_id or recommended_id
-    cleared_ok = override_manager.clear_override(
-        reason=f"Operator cleared manual override on '{prior_manual_id}' and restored Automatic Mode."
-    )
-    if cleared_ok:
-        auto_rec = engine.recommend(
-            services=all_services,
-            category=selected_category,
-            weights=normalized_weights,
-            previously_selected_id=None,
-            sla_config=active_sla,
-            hysteresis_config=active_hysteresis,
-            current_step=len(history_tracker.snapshots),
-            last_switch_step=st.session_state.last_switch_step,
-            operating_mode=MODE_AUTOMATIC,
-        )
-        auto_winner_id = auto_rec.selected_service.service_id if auto_rec.selected_service else None
-        auto_winner_name = auto_rec.selected_service.name if auto_rec.selected_service else "None"
-        snap_clr = history_tracker.record_snapshot(
-            action="Manual Override Cleared",
-            target_service_id=auto_winner_id or "NONE",
-            target_service_name=auto_winner_name,
-            message=f"Returned to Automatic Mode (selected: {auto_winner_id}).",
-            services=simulator.get_all_services(),
-            evaluator=evaluator,
-            weights=normalized_weights,
-        )
-        rec_clr = None
-        if auto_rec.has_eligible_service:
-            rec_clr = reselection_audit_trail.record_decision(
-                trigger_event=f"Manual Override Cleared -> Automatic Mode ({auto_winner_id})",
-                recommendation=auto_rec,
-                evaluator=evaluator,
-                weights=normalized_weights,
-                prev_service_id=prior_manual_id,
-                all_category_services=category_services,
-            )
-        try:
-            if override_manager.event_history:
-                persistence_manager.override_events.save_event(override_manager.event_history[-1])
-            persistence_manager.snapshots.save_snapshot(snap_clr)
-            if rec_clr:
-                persistence_manager.reselection.save_record(rec_clr)
-        except Exception:
-            pass
-        st.session_state.last_switch_step = len(history_tracker.snapshots)
-        st.session_state.prev_recommended_id = auto_winner_id
-        monitoring_engine.sync_external_selection(
-            category=selected_category,
-            selected_id=auto_winner_id,
-            switch_step=st.session_state.last_switch_step,
-        )
-        st.session_state.last_action_summary = {
-            "action": "Manual Override Cleared",
-            "service_id": auto_winner_id or "NONE",
-            "service_name": auto_winner_name,
-            "before": prior_manual_id or "None",
-            "after": auto_winner_id or "NONE",
-            "message": f"Manual override cleared; control returned to Automatic Mode ({auto_winner_id}).",
-        }
-        st.session_state.override_feedback = (
-            "info",
-            f"Manual override cleared. Control returned to Automatic Mode ({auto_winner_id or 'None Available'}).",
-        )
-        st.session_state["_recent_button_action"] = True
-        st.rerun()
-
-
-# =========================================================================
-# Periodic Automatic Service Monitoring Fragment (Phase 3)
-# =========================================================================
-def _periodic_monitoring_body() -> None:
-    """Execute one periodic health reassessment cycle and render live monitoring telemetry."""
-    mon: MonitoringEngine = st.session_state.monitoring_engine
-    sim: FailureSimulator = st.session_state.simulator
-    hist: HistoryTracker = st.session_state.history_tracker
-    audit: ReselectionAuditTrail = st.session_state.reselection_audit_trail
-    eval_obj: QoSEvaluator = mon.evaluator
-
-    cat = st.session_state.get("active_category")
-    sla = st.session_state.get("active_sla")
-    hyst = st.session_state.get("active_hysteresis")
-    wts = st.session_state.get("active_weights")
-    was_full_app_render = bool(st.session_state.pop("_is_full_app_render", False))
-
-    st.markdown("### 📡 Periodic Service Monitoring Dashboard")
-    hdr_col1, hdr_col2 = st.columns([0.80, 0.20])
-    with hdr_col2:
-        manual_check = st.button(
-            "🔍 Inspect Now",
-            key="btn_monitoring_inspect_now",
-            use_container_width=True,
-            help="Immediately run one monitoring assessment cycle without waiting for the next timer tick.",
-        )
-
-    override_mgr: ManualOverrideManager = st.session_state.override_manager
-
-    if manual_check or mon.is_active:
-        cycle_res = mon.run_cycle(
-            services=sim.get_all_services(),
-            category=cat,
-            weights=wts,
-            sla_config=sla,
-            hysteresis_config=hyst,
-            previously_selected_id=st.session_state.prev_recommended_id,
-            current_step=len(hist.snapshots),
-            last_switch_step=st.session_state.last_switch_step,
-            force=bool(manual_check),
-            respect_interval=False,
-            override_manager=override_mgr,
-        )
-        if cycle_res is not None and cycle_res.events_emitted:
-            try:
-                persistence_manager.monitoring_events.save_events_batch(cycle_res.events_emitted)
-            except Exception:
-                pass
-    else:
-        cycle_res = mon.last_cycle_result
-
-    # Trigger full dashboard rerun when background tick or manual inspect detects changes
-    if (
-        not was_full_app_render
-        and cycle_res is not None
-        and cycle_res.status not in ("SKIPPED_OVERLAP", "SKIPPED_INTERVAL")
-        and (cycle_res.reselection_triggered or cycle_res.changes_detected)
-    ):
-        if cycle_res.reselection_triggered and cycle_res.recommendation_result is not None:
-            prev_id = st.session_state.prev_recommended_id
-            new_id = cycle_res.selected_service_id
-            cat_svcs = sim.get_services_by_category(cat)
-            rec_res = cycle_res.recommendation_result
-
-            if rec_res.override_terminated:
-                st.session_state.override_feedback = (
-                    "error",
-                    rec_res.override_termination_reason
-                    or f"Emergency termination of manual override: switched to {new_id or 'NONE'}.",
-                )
-                st.session_state["_recent_override_terminated"] = True
-
-            if new_id is not None:
-                st.session_state.last_switch_step = len(hist.snapshots)
-            st.session_state.prev_recommended_id = new_id
-
-            snap_mon = hist.record_snapshot(
-                action=(
-                    "Emergency Override Reselection"
-                    if rec_res.override_terminated
-                    else "Periodic Monitor Reselection"
-                ),
-                target_service_id=new_id or "NONE",
-                target_service_name=cycle_res.selected_service_name or "None",
-                message=rec_res.decision_reason,
-                services=sim.get_all_services(),
-                evaluator=eval_obj,
-                weights=wts,
-            )
-            rec_mon = audit.record_decision(
-                trigger_event=(
-                    f"Emergency Override Failover (Cycle #{cycle_res.cycle_number})"
-                    if rec_res.override_terminated
-                    else f"Periodic Monitoring Cycle #{cycle_res.cycle_number}"
-                ),
-                recommendation=rec_res,
-                evaluator=eval_obj,
-                weights=wts,
-                prev_service_id=prev_id,
-                all_category_services=cat_svcs,
-            )
-            try:
-                persistence_manager.snapshots.save_snapshot(snap_mon)
-                if rec_mon:
-                    persistence_manager.reselection.save_record(rec_mon)
-                if rec_res.override_terminated and override_mgr.event_history:
-                    persistence_manager.override_events.save_event(override_mgr.event_history[-1])
-            except Exception:
-                pass
-            st.session_state.last_action_summary = {
-                "action": (
-                    "Emergency Manual Override Termination"
-                    if rec_res.override_terminated
-                    else "Automatic Periodic Reselection"
-                ),
-                "service_id": new_id or "NONE",
-                "service_name": cycle_res.selected_service_name or "No Eligible Service",
-                "before": prev_id or "None",
-                "after": new_id or "NONE",
-                "message": rec_res.decision_reason,
-            }
-        st.rerun()
-
-    mon_summary = mon.get_status_summary()
-    is_active_now = (mon_summary["status"] == STATUS_ACTIVE)
-    badge_bg = "#DCFCE7" if is_active_now else "#FEF3C7"
-    badge_fg = "#166534" if is_active_now else "#92400E"
-    badge_icon = "🟢" if is_active_now else "⏸️"
-    mode_label = "🎯 MANUAL_OVERRIDE" if override_mgr.is_manual_active else "🤖 AUTOMATIC"
-
-    with hdr_col1:
+# 2. Five Visual Cloud Service Cards
+card_cols = st.columns(len(category_services))
+for idx, svc in enumerate(category_services):
+    with card_cols[idx]:
+        is_active_card = (svc.service_id == rec_active_id)
+        card_class = "command-card-active" if is_active_card else "command-card"
+        
+        # Determine status pill
+        svc_health = classify_service_health(svc, active_sla)
+        if svc.operational_status == "UNAVAILABLE":
+            status_badge_html = '<span class="badge-outage">● OUTAGE</span>'
+        elif svc_health == HEALTH_DEGRADED:
+            status_badge_html = '<span class="badge-degraded">● DEGRADED</span>'
+        else:
+            status_badge_html = '<span class="badge-healthy">● HEALTHY</span>'
+            
+        # Role badge
+        if is_active_card:
+            role_badge_html = '<span class="badge-active-role">★ ACTIVE</span>'
+        elif svc.operational_status == "UNAVAILABLE":
+            role_badge_html = '<span class="badge-standby-role" style="color:#F87171; border-color:#EF4444;">DOWN</span>'
+        else:
+            role_badge_html = f'<span class="badge-standby-role">STANDBY #{idx+1}</span>'
+            
+        # QoS score
+        svc_score = evaluator.evaluate_service(svc, normalized_weights)
+        pct = max(0.0, min(100.0, svc_score.qos_score * 100))
+        
         st.markdown(
             f"""
-            <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 8px 14px; display: flex; flex-wrap: wrap; gap: 18px; align-items: center;">
-                <span style="background-color: {badge_bg}; color: {badge_fg}; font-weight: 700; padding: 3px 10px; border-radius: 999px; font-size: 0.85rem;">
-                    {badge_icon} {html.escape(mon_summary['status'])}
-                </span>
-                <span style="color: #475569; font-size: 0.9rem;">Mode: <b>{mode_label}</b></span>
-                <span style="color: #475569; font-size: 0.9rem;">Category: <b>{html.escape(str(cat))}</b></span>
-                <span style="color: #475569; font-size: 0.9rem;">Interval: <b>{mon_summary['interval_seconds']:.0f}s</b></span>
-                <span style="color: #475569; font-size: 0.9rem;">Cycles Executed: <b>#{mon_summary['cycle_count']}</b></span>
-                <span style="color: #475569; font-size: 0.9rem;">Last Checked: <b>{html.escape(str(mon_summary['last_run_timestamp']))}</b></span>
-                <span style="color: #475569; font-size: 0.9rem;">Next Expected Check: <b>{html.escape(str(mon_summary['next_expected_timestamp']))}</b></span>
+            <div class="{card_class}">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <span style="font-weight:800; font-size:1.05rem; color:#F8FAFC;">{svc.service_id}</span>
+                    {role_badge_html}
+                </div>
+                <div style="font-size:0.85rem; font-weight:600; color:#CBD5E1; margin-bottom:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                    {svc.name}
+                </div>
+                <div style="margin-bottom:8px;">{status_badge_html}</div>
+                <div style="font-size:0.75rem; color:#94A3B8; display:flex; justify-content:space-between; margin-bottom:2px;">
+                    <span>Latency:</span> <strong style="color:#F8FAFC;">{svc.latency:.1f} ms</strong>
+                </div>
+                <div style="font-size:0.75rem; color:#94A3B8; display:flex; justify-content:space-between; margin-bottom:2px;">
+                    <span>Availability:</span> <strong style="color:#F8FAFC;">{svc.availability:.1f}%</strong>
+                </div>
+                <div style="font-size:0.75rem; color:#94A3B8; display:flex; justify-content:space-between; margin-bottom:2px;">
+                    <span>Cost:</span> <strong style="color:#F8FAFC;">${svc.cost:.3f}</strong>
+                </div>
+                <div style="margin-top:8px;">
+                    <div style="display:flex; justify-content:space-between; font-size:0.72rem; color:#38BDF8; font-weight:700;">
+                        <span>QoS Score</span>
+                        <span>{svc_score.qos_score:.4f}</span>
+                    </div>
+                    <div class="qos-bar-bg">
+                        <div class="qos-bar-fill" style="width:{pct:.1f}%;"></div>
+                    </div>
+                </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-    mcol1, mcol2, mcol3, mcol4, mcol5, mcol6 = st.columns(6)
-    mcol1.metric("Monitored Services", mon_summary["total_services"])
-    mcol2.metric("Healthy Services", mon_summary["healthy_count"])
-    mcol3.metric("Degraded Services", mon_summary["degraded_count"])
-    mcol4.metric("Unavailable Services", mon_summary["unavailable_count"])
-    mcol5.metric("SLA Violations", mon_summary["sla_violating_count"])
+# 3. Clean 6-View Navigation
+st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
+nav_view = st.radio(
+    "Command Center Navigation",
+    options=[
+        "🖥️ Dashboard",
+        "🌐 Cloud Service Map",
+        "📈 Performance Analytics",
+        "⚡ Failure Lab",
+        "📜 Decision History",
+        "⚙️ Configuration",
+    ],
+    horizontal=True,
+    label_visibility="collapsed",
+    key="command_center_navigation",
+)
+st.markdown("<div style='margin-bottom:12px;'></div>", unsafe_allow_html=True)
 
-    active_svc_display = mon_summary["selected_service_id"] or "NONE"
-    if cycle_res is not None and cycle_res.selected_service_name:
-        active_svc_help = f"Active Service: {cycle_res.selected_service_id} - {cycle_res.selected_service_name}"
+# Helper function to generate SVG Cloud Service Map
+def render_service_map_svg():
+    lines_svg = []
+    nodes_svg = []
+    
+    for i, s in enumerate(category_services):
+        y_pos = 40 + i * 95
+        is_active = (s.service_id == rec_active_id)
+        is_down = (s.operational_status == "UNAVAILABLE")
+        s_health = classify_service_health(s, active_sla)
+        
+        if is_down:
+            line_color = "#EF4444"
+            line_width = "2"
+            line_dash = 'stroke-dasharray="5,5"'
+            node_fill = "#1E1215"
+            node_stroke = "#EF4444"
+            status_text = "OUTAGE"
+            role_text = "DOWN"
+            status_color = "#EF4444"
+        elif is_active:
+            line_color = "#38BDF8"
+            line_width = "3.5"
+            line_dash = ""
+            node_fill = "#0C2A4D"
+            node_stroke = "#38BDF8"
+            status_text = "ACTIVE"
+            role_text = "SELECTED"
+            status_color = "#38BDF8"
+        elif s_health == HEALTH_DEGRADED:
+            line_color = "#F59E0B"
+            line_width = "1.5"
+            line_dash = 'stroke-dasharray="4,4"'
+            node_fill = "#241E12"
+            node_stroke = "#F59E0B"
+            status_text = "DEGRADED"
+            role_text = "STANDBY"
+            status_color = "#FBBF24"
+        else:
+            line_color = "#334155"
+            line_width = "1.5"
+            line_dash = 'stroke-dasharray="3,3"'
+            node_fill = "#0F172A"
+            node_stroke = "#334155"
+            status_text = "HEALTHY"
+            role_text = "STANDBY"
+            status_color = "#34D399"
+
+        lines_svg.append(f'<path d="M 430 230 C 510 230, 510 {y_pos+35}, 600 {y_pos+35}" stroke="{line_color}" stroke-width="{line_width}" fill="none" {line_dash}/>')
+        if is_active:
+            lines_svg.append(f'<circle r="4" fill="#38BDF8"><animateMotion path="M 430 230 C 510 230, 510 {y_pos+35}, 600 {y_pos+35}" dur="1.2s" repeatCount="indefinite"/></circle>')
+
+        sc = evaluator.evaluate_service(s, normalized_weights)
+        nodes_svg.append(f"""
+        <g transform="translate(600, {y_pos})">
+            <rect width="280" height="70" rx="8" fill="{node_fill}" stroke="{node_stroke}" stroke-width="2"/>
+            <text x="14" y="24" fill="#F8FAFC" font-size="13" font-weight="700">{s.service_id} — {s.name}</text>
+            <text x="14" y="44" fill="#94A3B8" font-size="11">Lat: {s.latency:.1f}ms | Avail: {s.availability:.1f}%</text>
+            <text x="14" y="60" fill="{status_color}" font-size="10" font-weight="700">● {status_text} | {role_text}</text>
+            <text x="265" y="44" fill="#38BDF8" font-size="12" font-weight="800" text-anchor="end">Q:{sc.qos_score:.3f}</text>
+        </g>
+        """)
+
+    full_svg = f"""
+    <svg width="100%" height="520" viewBox="0 0 920 520" xmlns="http://www.w3.org/2000/svg" style="background:#0F172A; border-radius:12px; border:1px solid #1E293B;">
+        <defs>
+            <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="6" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+            </filter>
+        </defs>
+        
+        <!-- Connecting lines -->
+        {''.join(lines_svg)}
+
+        <!-- Client Ingress Node -->
+        <g transform="translate(40, 195)">
+            <rect width="140" height="70" rx="8" fill="#1E293B" stroke="#38BDF8" stroke-width="2"/>
+            <text x="70" y="32" fill="#38BDF8" font-size="12" font-weight="800" text-anchor="middle">CLIENT TRAFFIC</text>
+            <text x="70" y="52" fill="#94A3B8" font-size="11" text-anchor="middle">Ingress Gateway</text>
+        </g>
+        
+        <!-- Connecting line Ingress -> Router -->
+        <path d="M 180 230 L 270 230" stroke="#38BDF8" stroke-width="3" fill="none"/>
+        <circle r="4" fill="#38BDF8"><animateMotion path="M 180 230 L 270 230" dur="1s" repeatCount="indefinite"/></circle>
+
+        <!-- Router Node -->
+        <g transform="translate(270, 185)">
+            <rect width="160" height="90" rx="10" fill="#0F2847" stroke="#06B6D4" stroke-width="2.5" filter="url(#glow)"/>
+            <text x="80" y="32" fill="#38BDF8" font-size="12" font-weight="800" text-anchor="middle">QoS RESELECTION</text>
+            <text x="80" y="50" fill="#F8FAFC" font-size="13" font-weight="800" text-anchor="middle">ROUTER &amp; SLA</text>
+            <text x="80" y="70" fill="#94A3B8" font-size="10" text-anchor="middle">Anti-Flapping Engine</text>
+        </g>
+
+        <!-- Service Nodes -->
+        {''.join(nodes_svg)}
+    </svg>
+    """
+    return full_svg
+
+
+# =========================================================================
+# VIEW 1: 🖥️ DASHBOARD
+# =========================================================================
+if nav_view == "🖥️ Dashboard":
+    # Visual 7-Step Automatic Failover Experience
+    st.markdown("### 🔄 Automatic Failover Experience & Workflow Tracker")
+    
+    # Evaluate steps
+    has_fault = any_outage or any_degraded
+    is_switched = (recommendation.decision_type in ("SWITCHED", "EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION"))
+    step1_class = "step-circle-done"
+    step2_class = "step-circle-done" if has_fault else ("step-circle-active" if not has_fault else "step-circle-done")
+    step3_class = "step-circle-done" if len(recommendation.ranked_eligible) > 0 else "step-circle-idle"
+    step4_class = "step-circle-done" if len(recommendation.ranked_eligible) > 0 else "step-circle-idle"
+    step5_class = "step-circle-done" if is_switched or recommendation.decision_type == "RETAINED" else "step-circle-idle"
+    step6_class = "step-circle-active" if recommendation.selected_service else "step-circle-idle"
+    step7_class = "step-circle-done" if not any_outage else "step-circle-idle"
+
+    st.markdown(
+        f"""
+        <div class="command-card">
+            <div class="stepper-container">
+                <div class="step-node">
+                    <div class="{step1_class}">1</div>
+                    <div class="step-label">Active Provider</div>
+                </div>
+                <div style="flex-grow:1; height:2px; background:#334155; margin:0 8px;"></div>
+                <div class="step-node">
+                    <div class="{step2_class}">2</div>
+                    <div class="step-label">Fault Detection</div>
+                </div>
+                <div style="flex-grow:1; height:2px; background:#334155; margin:0 8px;"></div>
+                <div class="step-node">
+                    <div class="{step3_class}">3</div>
+                    <div class="step-label">SLA Guardrail</div>
+                </div>
+                <div style="flex-grow:1; height:2px; background:#334155; margin:0 8px;"></div>
+                <div class="step-node">
+                    <div class="{step4_class}">4</div>
+                    <div class="step-label">QoS Ranking</div>
+                </div>
+                <div style="flex-grow:1; height:2px; background:#334155; margin:0 8px;"></div>
+                <div class="step-node">
+                    <div class="{step5_class}">5</div>
+                    <div class="step-label">Hysteresis Check</div>
+                </div>
+                <div style="flex-grow:1; height:2px; background:#334155; margin:0 8px;"></div>
+                <div class="step-node">
+                    <div class="{step6_class}">6</div>
+                    <div class="step-label">Service Reselect</div>
+                </div>
+                <div style="flex-grow:1; height:2px; background:#334155; margin:0 8px;"></div>
+                <div class="step-node">
+                    <div class="{step7_class}">7</div>
+                    <div class="step-label">Handover Confirmed</div>
+                </div>
+            </div>
+            <div style="background:#0B1120; border-radius:6px; border-left:4px solid #38BDF8; padding:10px 14px; margin-top:8px;">
+                <span style="color:#94A3B8; font-size:0.8rem; text-transform:uppercase; font-weight:700;">Plain-Language Decision Rationale:</span>
+                <div style="color:#F8FAFC; font-size:0.92rem; font-weight:600; margin-top:2px;">
+                    "{recommendation.decision_reason}"
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    # Operating Mode & Manual Service Override Control (Phase 4)
+    # =========================================================================
+    st.markdown("### 🎛️ Operating Mode & Service Selection Control")
+
+    eligible_pairs = recommendation.ranked_eligible
+    eligible_service_ids = [s.service_id for s, _ in eligible_pairs]
+    eligible_labels = {
+        s.service_id: f"{s.service_id} - {s.name} (QoS: {sc.qos_score:.4f} | Lat: {s.latency:.1f}ms)"
+        for s, sc in eligible_pairs
+    }
+
+    active_mode = MODE_MANUAL if recommendation.manual_override_active else MODE_AUTOMATIC
+    mode_bg = "#F3E8FF" if active_mode == MODE_MANUAL else "#DBEAFE"
+    mode_fg = "#6B21A8" if active_mode == MODE_MANUAL else "#1E40AF"
+    mode_icon = "🎯" if active_mode == MODE_MANUAL else "🤖"
+
+    if not recommendation.has_eligible_service or recommendation.selected_service is None:
+        sel_summary_txt = "None (No SLA-Compliant Service Available)"
+        sel_kind_txt = "Unavailable / All Ineligible"
+    elif recommendation.decision_type == "MANUAL_OVERRIDE":
+        sel_summary_txt = f"{recommendation.selected_service.service_id} - {recommendation.selected_service.name}"
+        sel_kind_txt = "Manually Overridden Service"
+    elif recommendation.decision_type in ("EMERGENCY_OUTAGE", "EMERGENCY_SLA_VIOLATION") or recent_override_terminated:
+        sel_summary_txt = f"{recommendation.selected_service.service_id} - {recommendation.selected_service.name}"
+        sel_kind_txt = "Emergency Replacement Service"
     else:
-        active_svc_help = "Currently selected service in monitored category"
-    mcol6.metric("Active Selected", active_svc_display, help=active_svc_help)
+        sel_summary_txt = f"{recommendation.selected_service.service_id} - {recommendation.selected_service.name}"
+        sel_kind_txt = "Automatically Selected Service"
 
-    recovered_ids = (
-        [
-            sid for sid, snap in cycle_res.service_snapshots.items()
-            if snap.health_state == HEALTH_RECOVERED
-        ]
-        if cycle_res is not None
-        else []
+    auto_best = recommendation.automatic_best_service
+    auto_best_score = recommendation.automatic_best_score
+    auto_ref_txt = (
+        f"{auto_best.service_id} - {auto_best.name} (QoS: {auto_best_score.qos_score:.4f})"
+        if auto_best is not None and auto_best_score is not None
+        else "None Available"
+    )
+    sla_status_txt = (
+        f"Compliant ({len(eligible_pairs)}/{len(category_services)} eligible)"
+        if len(eligible_pairs) > 0
+        else f"No Compliant Service (0/{len(category_services)} eligible)"
     )
 
-    info_col1, info_col2 = st.columns(2)
-    with info_col1:
-        if cycle_res is not None and cycle_res.selected_service_id is None:
-            st.error("🚫 **Automatic Reselection Status:** No eligible SLA-compliant service currently available.")
-        elif cycle_res is not None and cycle_res.reselection_triggered:
-            st.warning(
-                f"🔄 **Automatic Reselection Triggered:** Switched active service to "
-                f"`{cycle_res.selected_service_id} - {cycle_res.selected_service_name}`."
-            )
-        elif recovered_ids:
-            st.info(
-                f"💚 **Recovery Observed:** {', '.join(f'`{rid}`' for rid in recovered_ids)} restored to SLA compliance. "
-                f"Active selection: `{active_svc_display}`."
+    st.markdown(
+        f"""
+        <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 10px 14px; margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 18px; align-items: center;">
+            <span style="background-color: {mode_bg}; color: {mode_fg}; font-weight: 700; padding: 3px 10px; border-radius: 999px; font-size: 0.85rem;">
+                {mode_icon} Mode: {html.escape(active_mode)}
+            </span>
+            <span style="color: #1E293B; font-size: 0.9rem;">Active Selection: <b>{html.escape(sel_summary_txt)}</b> <i>({html.escape(sel_kind_txt)})</i></span>
+            <span style="color: #475569; font-size: 0.9rem;">Automatic Rank #1: <b>{html.escape(auto_ref_txt)}</b></span>
+            <span style="color: #475569; font-size: 0.9rem;">SLA Compliance: <b>{html.escape(sla_status_txt)}</b></span>
+            <span style="color: #475569; font-size: 0.9rem;">Manual Override: <b>{"ACTIVE" if override_manager.is_manual_active else "INACTIVE"}</b></span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.caption(f"**Selection Reason:** {recommendation.decision_reason}")
+
+    feedback = st.session_state.pop("override_feedback", None)
+    if feedback is not None:
+        fb_level, fb_msg = feedback
+        if fb_level == "error":
+            st.error(f"🛑 {fb_msg}")
+        elif fb_level == "success":
+            st.success(f"✅ {fb_msg}")
+        else:
+            st.info(f"ℹ️ {fb_msg}")
+
+    ov_col1, ov_col2, ov_col3, ov_col4 = st.columns([0.36, 0.28, 0.18, 0.18])
+    with ov_col1:
+        if eligible_service_ids:
+            default_ov_idx = 0
+            if override_manager.is_manual_active and override_manager.requested_service_id in eligible_service_ids:
+                default_ov_idx = eligible_service_ids.index(override_manager.requested_service_id)
+            chosen_manual_id = st.selectbox(
+                "Eligible Services for Manual Selection",
+                options=eligible_service_ids,
+                index=default_ov_idx,
+                format_func=lambda sid: eligible_labels.get(sid, sid),
+                key="manual_override_target_select",
+                help="Only operationally AVAILABLE and SLA-compliant candidates in the active category are selectable.",
             )
         else:
-            st.success(
-                f"✅ **Automatic Reselection Status:** Stable on `{active_svc_display}` (no unscheduled switch required)."
+            st.selectbox(
+                "Eligible Services for Manual Selection",
+                options=["NONE_ELIGIBLE"],
+                index=0,
+                format_func=lambda _: "No eligible SLA-compliant services available",
+                disabled=True,
+                key="manual_override_target_select",
             )
+            chosen_manual_id = None
 
-    with info_col2:
-        latest_evt = mon_summary.get("latest_event")
-        if latest_evt:
-            st.info(
-                f"🧾 **Latest Event (`{latest_evt['event_type']}` @ {latest_evt['timestamp']}):** "
-                f"{latest_evt['reason']}"
+    with ov_col2:
+        manual_reason_text = st.text_input(
+            "Override Reason (Optional)",
+            value=override_manager.reason if override_manager.is_manual_active else "",
+            placeholder="e.g., Operator preference / maintenance check",
+            key="manual_override_reason_input",
+        )
+
+    with ov_col3:
+        st.markdown("<div style='margin-top: 26px;'></div>", unsafe_allow_html=True)
+        btn_activate_override = st.button(
+            "🎯 Activate Manual Override",
+            key="btn_activate_manual_override",
+            use_container_width=True,
+            disabled=(len(eligible_service_ids) == 0),
+        )
+
+    with ov_col4:
+        st.markdown("<div style='margin-top: 26px;'></div>", unsafe_allow_html=True)
+        btn_clear_override = st.button(
+            "🔄 Return to Automatic",
+            key="btn_clear_manual_override",
+            use_container_width=True,
+            disabled=(not override_manager.is_manual_active),
+        )
+
+    if btn_activate_override:
+        prior_active_id = recommended_id
+        ok_ov, msg_ov, _ = override_manager.request_manual_override(
+            services=all_services,
+            category=selected_category,
+            requested_service_id=chosen_manual_id,
+            sla_config=active_sla,
+            reason=manual_reason_text,
+        )
+        if ok_ov and chosen_manual_id is not None:
+            man_rec = engine.recommend(
+                services=all_services,
+                category=selected_category,
+                weights=normalized_weights,
+                previously_selected_id=prior_active_id,
+                sla_config=active_sla,
+                hysteresis_config=active_hysteresis,
+                current_step=len(history_tracker.snapshots),
+                last_switch_step=st.session_state.last_switch_step,
+                operating_mode=MODE_MANUAL,
+                manual_service_id=chosen_manual_id,
+                manual_override_reason=override_manager.reason,
             )
+            snap_ovr = history_tracker.record_snapshot(
+                action="Manual Override Activated",
+                target_service_id=chosen_manual_id,
+                target_service_name=man_rec.selected_service.name if man_rec.selected_service else chosen_manual_id,
+                message=msg_ov,
+                services=simulator.get_all_services(),
+                evaluator=evaluator,
+                weights=normalized_weights,
+            )
+            rec_ovr = reselection_audit_trail.record_decision(
+                trigger_event=f"Manual Override Activated -> {chosen_manual_id}",
+                recommendation=man_rec,
+                evaluator=evaluator,
+                weights=normalized_weights,
+                prev_service_id=prior_active_id,
+                all_category_services=category_services,
+            )
+            try:
+                if override_manager.event_history:
+                    persistence_manager.override_events.save_event(override_manager.event_history[-1])
+                persistence_manager.snapshots.save_snapshot(snap_ovr)
+                if rec_ovr:
+                    persistence_manager.reselection.save_record(rec_ovr)
+            except Exception:
+                pass
+            st.session_state.last_switch_step = len(history_tracker.snapshots)
+            st.session_state.prev_recommended_id = chosen_manual_id
+            monitoring_engine.sync_external_selection(
+                category=selected_category,
+                selected_id=chosen_manual_id,
+                switch_step=st.session_state.last_switch_step,
+            )
+            st.session_state.last_action_summary = {
+                "action": "Manual Override Activated",
+                "service_id": chosen_manual_id,
+                "service_name": man_rec.selected_service.name if man_rec.selected_service else chosen_manual_id,
+                "before": prior_active_id or "None",
+                "after": chosen_manual_id,
+                "message": msg_ov,
+            }
+            st.session_state.override_feedback = ("success", msg_ov)
+            st.session_state["_recent_button_action"] = True
+            st.rerun()
         else:
-            st.info("🧾 **Latest Event:** No monitoring events recorded yet.")
+            st.session_state.override_feedback = ("error", msg_ov)
+            st.rerun()
+
+    if btn_clear_override:
+        prior_manual_id = override_manager.requested_service_id or recommended_id
+        cleared_ok = override_manager.clear_override(
+            reason=f"Operator cleared manual override on '{prior_manual_id}' and restored Automatic Mode."
+        )
+        if cleared_ok:
+            auto_rec = engine.recommend(
+                services=all_services,
+                category=selected_category,
+                weights=normalized_weights,
+                previously_selected_id=None,
+                sla_config=active_sla,
+                hysteresis_config=active_hysteresis,
+                current_step=len(history_tracker.snapshots),
+                last_switch_step=st.session_state.last_switch_step,
+                operating_mode=MODE_AUTOMATIC,
+            )
+            auto_winner_id = auto_rec.selected_service.service_id if auto_rec.selected_service else None
+            auto_winner_name = auto_rec.selected_service.name if auto_rec.selected_service else "None"
+            snap_clr = history_tracker.record_snapshot(
+                action="Manual Override Cleared",
+                target_service_id=auto_winner_id or "NONE",
+                target_service_name=auto_winner_name,
+                message=f"Returned to Automatic Mode (selected: {auto_winner_id}).",
+                services=simulator.get_all_services(),
+                evaluator=evaluator,
+                weights=normalized_weights,
+            )
+            rec_clr = None
+            if auto_rec.has_eligible_service:
+                rec_clr = reselection_audit_trail.record_decision(
+                    trigger_event=f"Manual Override Cleared -> Automatic Mode ({auto_winner_id})",
+                    recommendation=auto_rec,
+                    evaluator=evaluator,
+                    weights=normalized_weights,
+                    prev_service_id=prior_manual_id,
+                    all_category_services=category_services,
+                )
+            try:
+                if override_manager.event_history:
+                    persistence_manager.override_events.save_event(override_manager.event_history[-1])
+                persistence_manager.snapshots.save_snapshot(snap_clr)
+                if rec_clr:
+                    persistence_manager.reselection.save_record(rec_clr)
+            except Exception:
+                pass
+            st.session_state.last_switch_step = len(history_tracker.snapshots)
+            st.session_state.prev_recommended_id = auto_winner_id
+            monitoring_engine.sync_external_selection(
+                category=selected_category,
+                selected_id=auto_winner_id,
+                switch_step=st.session_state.last_switch_step,
+            )
+            st.session_state.last_action_summary = {
+                "action": "Manual Override Cleared",
+                "service_id": auto_winner_id or "NONE",
+                "service_name": auto_winner_name,
+                "before": prior_manual_id or "None",
+                "after": auto_winner_id or "NONE",
+                "message": f"Manual override cleared; control returned to Automatic Mode ({auto_winner_id}).",
+            }
+            st.session_state.override_feedback = (
+                "info",
+                f"Manual override cleared. Control returned to Automatic Mode ({auto_winner_id or 'None Available'}).",
+            )
+            st.session_state["_recent_button_action"] = True
+            st.rerun()
 
 
-st.fragment(
-    _periodic_monitoring_body,
-    run_every=active_monitoring_config.interval_seconds if monitoring_engine.is_active else None,
-    key="periodic_monitor_panel",
-)()
+    # =========================================================================
+    # Periodic Automatic Service Monitoring Fragment (Phase 3)
+    # =========================================================================
+    def _periodic_monitoring_body() -> None:
+        """Execute one periodic health reassessment cycle and render live monitoring telemetry."""
+        mon: MonitoringEngine = st.session_state.monitoring_engine
+        sim: FailureSimulator = st.session_state.simulator
+        hist: HistoryTracker = st.session_state.history_tracker
+        audit: ReselectionAuditTrail = st.session_state.reselection_audit_trail
+        eval_obj: QoSEvaluator = mon.evaluator
+
+        cat = st.session_state.get("active_category")
+        sla = st.session_state.get("active_sla")
+        hyst = st.session_state.get("active_hysteresis")
+        wts = st.session_state.get("active_weights")
+        was_full_app_render = bool(st.session_state.pop("_is_full_app_render", False))
+
+        st.markdown("### 📡 Periodic Service Monitoring Dashboard")
+        hdr_col1, hdr_col2 = st.columns([0.80, 0.20])
+        with hdr_col2:
+            manual_check = st.button(
+                "🔍 Inspect Now",
+                key="btn_monitoring_inspect_now",
+                use_container_width=True,
+                help="Immediately run one monitoring assessment cycle without waiting for the next timer tick.",
+            )
+
+        override_mgr: ManualOverrideManager = st.session_state.override_manager
+
+        if manual_check or mon.is_active:
+            cycle_res = mon.run_cycle(
+                services=sim.get_all_services(),
+                category=cat,
+                weights=wts,
+                sla_config=sla,
+                hysteresis_config=hyst,
+                previously_selected_id=st.session_state.prev_recommended_id,
+                current_step=len(hist.snapshots),
+                last_switch_step=st.session_state.last_switch_step,
+                force=bool(manual_check),
+                respect_interval=False,
+                override_manager=override_mgr,
+            )
+            if cycle_res is not None and cycle_res.events_emitted:
+                try:
+                    persistence_manager.monitoring_events.save_events_batch(cycle_res.events_emitted)
+                except Exception:
+                    pass
+        else:
+            cycle_res = mon.last_cycle_result
+
+        # Trigger full dashboard rerun when background tick or manual inspect detects changes
+        if (
+            not was_full_app_render
+            and cycle_res is not None
+            and cycle_res.status not in ("SKIPPED_OVERLAP", "SKIPPED_INTERVAL")
+            and (cycle_res.reselection_triggered or cycle_res.changes_detected)
+        ):
+            if cycle_res.reselection_triggered and cycle_res.recommendation_result is not None:
+                prev_id = st.session_state.prev_recommended_id
+                new_id = cycle_res.selected_service_id
+                cat_svcs = sim.get_services_by_category(cat)
+                rec_res = cycle_res.recommendation_result
+
+                if rec_res.override_terminated:
+                    st.session_state.override_feedback = (
+                        "error",
+                        rec_res.override_termination_reason
+                        or f"Emergency termination of manual override: switched to {new_id or 'NONE'}.",
+                    )
+                    st.session_state["_recent_override_terminated"] = True
+
+                if new_id is not None:
+                    st.session_state.last_switch_step = len(hist.snapshots)
+                st.session_state.prev_recommended_id = new_id
+
+                snap_mon = hist.record_snapshot(
+                    action=(
+                        "Emergency Override Reselection"
+                        if rec_res.override_terminated
+                        else "Periodic Monitor Reselection"
+                    ),
+                    target_service_id=new_id or "NONE",
+                    target_service_name=cycle_res.selected_service_name or "None",
+                    message=rec_res.decision_reason,
+                    services=sim.get_all_services(),
+                    evaluator=eval_obj,
+                    weights=wts,
+                )
+                rec_mon = audit.record_decision(
+                    trigger_event=(
+                        f"Emergency Override Failover (Cycle #{cycle_res.cycle_number})"
+                        if rec_res.override_terminated
+                        else f"Periodic Monitoring Cycle #{cycle_res.cycle_number}"
+                    ),
+                    recommendation=rec_res,
+                    evaluator=eval_obj,
+                    weights=wts,
+                    prev_service_id=prev_id,
+                    all_category_services=cat_svcs,
+                )
+                try:
+                    persistence_manager.snapshots.save_snapshot(snap_mon)
+                    if rec_mon:
+                        persistence_manager.reselection.save_record(rec_mon)
+                    if rec_res.override_terminated and override_mgr.event_history:
+                        persistence_manager.override_events.save_event(override_mgr.event_history[-1])
+                except Exception:
+                    pass
+                st.session_state.last_action_summary = {
+                    "action": (
+                        "Emergency Manual Override Termination"
+                        if rec_res.override_terminated
+                        else "Automatic Periodic Reselection"
+                    ),
+                    "service_id": new_id or "NONE",
+                    "service_name": cycle_res.selected_service_name or "No Eligible Service",
+                    "before": prev_id or "None",
+                    "after": new_id or "NONE",
+                    "message": rec_res.decision_reason,
+                }
+            st.rerun()
+
+        mon_summary = mon.get_status_summary()
+        is_active_now = (mon_summary["status"] == STATUS_ACTIVE)
+        badge_bg = "#DCFCE7" if is_active_now else "#FEF3C7"
+        badge_fg = "#166534" if is_active_now else "#92400E"
+        badge_icon = "🟢" if is_active_now else "⏸️"
+        mode_label = "🎯 MANUAL_OVERRIDE" if override_mgr.is_manual_active else "🤖 AUTOMATIC"
+
+        with hdr_col1:
+            st.markdown(
+                f"""
+                <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 8px 14px; display: flex; flex-wrap: wrap; gap: 18px; align-items: center;">
+                    <span style="background-color: {badge_bg}; color: {badge_fg}; font-weight: 700; padding: 3px 10px; border-radius: 999px; font-size: 0.85rem;">
+                        {badge_icon} {html.escape(mon_summary['status'])}
+                    </span>
+                    <span style="color: #475569; font-size: 0.9rem;">Mode: <b>{mode_label}</b></span>
+                    <span style="color: #475569; font-size: 0.9rem;">Category: <b>{html.escape(str(cat))}</b></span>
+                    <span style="color: #475569; font-size: 0.9rem;">Interval: <b>{mon_summary['interval_seconds']:.0f}s</b></span>
+                    <span style="color: #475569; font-size: 0.9rem;">Cycles Executed: <b>#{mon_summary['cycle_count']}</b></span>
+                    <span style="color: #475569; font-size: 0.9rem;">Last Checked: <b>{html.escape(str(mon_summary['last_run_timestamp']))}</b></span>
+                    <span style="color: #475569; font-size: 0.9rem;">Next Expected Check: <b>{html.escape(str(mon_summary['next_expected_timestamp']))}</b></span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        mcol1, mcol2, mcol3, mcol4, mcol5, mcol6 = st.columns(6)
+        mcol1.metric("Monitored Services", mon_summary["total_services"])
+        mcol2.metric("Healthy Services", mon_summary["healthy_count"])
+        mcol3.metric("Degraded Services", mon_summary["degraded_count"])
+        mcol4.metric("Unavailable Services", mon_summary["unavailable_count"])
+        mcol5.metric("SLA Violations", mon_summary["sla_violating_count"])
+
+        active_svc_display = mon_summary["selected_service_id"] or "NONE"
+        if cycle_res is not None and cycle_res.selected_service_name:
+            active_svc_help = f"Active Service: {cycle_res.selected_service_id} - {cycle_res.selected_service_name}"
+        else:
+            active_svc_help = "Currently selected service in monitored category"
+        mcol6.metric("Active Selected", active_svc_display, help=active_svc_help)
+
+        recovered_ids = (
+            [
+                sid for sid, snap in cycle_res.service_snapshots.items()
+                if snap.health_state == HEALTH_RECOVERED
+            ]
+            if cycle_res is not None
+            else []
+        )
+
+        info_col1, info_col2 = st.columns(2)
+        with info_col1:
+            if cycle_res is not None and cycle_res.selected_service_id is None:
+                st.error("🚫 **Automatic Reselection Status:** No eligible SLA-compliant service currently available.")
+            elif cycle_res is not None and cycle_res.reselection_triggered:
+                st.warning(
+                    f"🔄 **Automatic Reselection Triggered:** Switched active service to "
+                    f"`{cycle_res.selected_service_id} - {cycle_res.selected_service_name}`."
+                )
+            elif recovered_ids:
+                st.info(
+                    f"💚 **Recovery Observed:** {', '.join(f'`{rid}`' for rid in recovered_ids)} restored to SLA compliance. "
+                    f"Active selection: `{active_svc_display}`."
+                )
+            else:
+                st.success(
+                    f"✅ **Automatic Reselection Status:** Stable on `{active_svc_display}` (no unscheduled switch required)."
+                )
+
+        with info_col2:
+            latest_evt = mon_summary.get("latest_event")
+            if latest_evt:
+                st.info(
+                    f"🧾 **Latest Event (`{latest_evt['event_type']}` @ {latest_evt['timestamp']}):** "
+                    f"{latest_evt['reason']}"
+                )
+            else:
+                st.info("🧾 **Latest Event:** No monitoring events recorded yet.")
 
 
-# =========================================================================
-# Dashboard Tabs Layout
-# =========================================================================
-tab_overview, tab_analytics, tab_failure, tab_history = st.tabs([
-    "📌 Overview & Explainability",
-    "📊 QoS Analytics",
-    "⚡ Failure Analysis",
-    "📜 Simulation & Decision History",
-])
+    st.fragment(
+        _periodic_monitoring_body,
+        run_every=active_monitoring_config.interval_seconds if monitoring_engine.is_active else None,
+        key="periodic_monitor_panel",
+    )()
 
 
-# =========================================================================
-# Tab 1: Overview & Intelligent Recommendation Explainability
-# =========================================================================
-with tab_overview:
+    # =========================================================================
+
     # --- Configured SLA Thresholds & Hysteresis Banner ---
     st.markdown(
         f"""
@@ -1747,7 +2227,43 @@ with tab_overview:
 # =========================================================================
 # Tab 2: QoS Analytics
 # =========================================================================
-with tab_analytics:
+
+# =========================================================================
+# VIEW 2: 🌐 CLOUD SERVICE MAP
+# =========================================================================
+elif nav_view == "🌐 Cloud Service Map":
+    st.markdown("### 🌐 Visual Cloud Service Topology & Real-Time Traffic Routing")
+    st.caption("Live animated topological graph demonstrating client ingress traffic, central QoS reselection policy routing, and real-time candidate cloud service states.")
+    
+    st.markdown(render_service_map_svg(), unsafe_allow_html=True)
+    
+    st.markdown("---")
+    st.markdown("#### 🔍 Real-Time Service Node Telemetry Breakdown")
+    topology_rows = []
+    for s in category_services:
+        sc = evaluator.evaluate_service(s, normalized_weights)
+        is_cur = (s.service_id == rec_active_id)
+        role = "ACTIVE SELECTED" if is_cur else ("UNAVAILABLE" if s.operational_status == "UNAVAILABLE" else "STANDBY CANDIDATE")
+        h = classify_service_health(s, active_sla)
+        topology_rows.append({
+            "Service ID": s.service_id,
+            "Service Name": s.name,
+            "Current Role": role,
+            "Health State": h,
+            "Operational Status": s.operational_status,
+            "Latency (ms)": f"{s.latency:.1f}",
+            "Availability (%)": f"{s.availability:.2f}",
+            "Reliability (%)": f"{s.reliability:.2f}",
+            "Cost ($)": f"${s.cost:.3f}",
+            "QoS Score": f"{sc.qos_score:.4f}",
+        })
+    st.dataframe(pd.DataFrame(topology_rows), **_render_full_width_kwargs(), hide_index=True)
+
+# =========================================================================
+# VIEW 3: 📈 PERFORMANCE ANALYTICS
+# =========================================================================
+elif nav_view == "📈 Performance Analytics":
+
     st.markdown("### 📊 QoS Comparative Analytics")
     st.markdown(
         '<div class="section-desc">'
@@ -1849,7 +2365,43 @@ with tab_analytics:
 # =========================================================================
 # Tab 3: Failure Analysis
 # =========================================================================
-with tab_failure:
+
+# =========================================================================
+# VIEW 4: ⚡ FAILURE LAB
+# =========================================================================
+elif nav_view == "⚡ Failure Lab":
+    st.markdown("### ⚡ Interactive Failure Lab & Fault Injection Workbench")
+    st.caption("Inject controlled latency spikes, service outages, or availability degradations, and observe how the dynamic failover engine responds.")
+    
+    # Examiner Quick Scenarios
+    st.markdown("#### 🧪 One-Click Examiner Demonstration Scenarios")
+    sc_col1, sc_col2, sc_col3, sc_col4 = st.columns(4)
+    with sc_col1:
+        if st.button("💥 Scenario 1: Active Latency Spike", use_container_width=True):
+            if rec_active_id and rec_active_id != "NONE":
+                simulator.inject_latency_spike(rec_active_id, 350.0)
+                st.session_state["_recent_button_action"] = True
+                st.rerun()
+    with sc_col2:
+        if st.button("🔴 Scenario 2: Active Provider Outage", use_container_width=True):
+            if rec_active_id and rec_active_id != "NONE":
+                simulator.simulate_outage(rec_active_id)
+                st.session_state["_recent_button_action"] = True
+                st.rerun()
+    with sc_col3:
+        if st.button("📉 Scenario 3: Availability Drop", use_container_width=True):
+            if rec_active_id and rec_active_id != "NONE":
+                simulator.reduce_availability(rec_active_id, 30.0)
+                st.session_state["_recent_button_action"] = True
+                st.rerun()
+    with sc_col4:
+        if st.button("🟢 Scenario 4: Restore All Services", use_container_width=True):
+            simulator.reset_all_services()
+            st.session_state["_recent_button_action"] = True
+            st.rerun()
+            
+    st.markdown("---")
+
     st.markdown("### ⚡ Failure Impact & Recovery Analysis")
     st.markdown(
         '<div class="section-desc">'
@@ -1946,7 +2498,12 @@ with tab_failure:
 # =========================================================================
 # Tab 4: Simulation & Decision History
 # =========================================================================
-with tab_history:
+
+# =========================================================================
+# VIEW 5: 📜 DECISION HISTORY
+# =========================================================================
+elif nav_view == "📜 Decision History":
+
     st.markdown("### 📜 Simulation Performance History & Reselection Decision Audit Trail")
     st.markdown(
         '<div class="section-desc">'
@@ -2120,6 +2677,56 @@ with tab_history:
         )
         confirm_purge = st.checkbox("I confirm that I want to permanently delete all persisted database records.")
         if st.button("🗑️ Permanently Delete All Persisted Database History", disabled=not confirm_purge, type="secondary"):
+            persistence_manager.simulation_events.clear_events(confirmed=True)
+            persistence_manager.monitoring_events.clear_events(confirmed=True)
+            persistence_manager.reselection.clear_records(confirmed=True)
+            persistence_manager.override_events.clear_events(confirmed=True)
+            persistence_manager.snapshots.clear_snapshots(confirmed=True)
+            reselection_audit_trail.reset()
+            monitoring_engine.clear_events()
+            override_manager.clear_events()
+            history_tracker.reset()
+            st.success("All historical database records and session histories have been permanently purged.")
+            st.rerun()
+
+# =========================================================================
+# VIEW 6: ⚙️ CONFIGURATION
+# =========================================================================
+elif nav_view == "⚙️ Configuration":
+    st.markdown("### ⚙️ SLA Constraints, Hysteresis Policy & Persistence Settings")
+    st.caption("Review active SLA boundaries, anti-flapping thresholds, and persistent database health telemetry.")
+    
+    cfg_col1, cfg_col2 = st.columns(2)
+    with cfg_col1:
+        st.markdown("#### 🛡️ Active SLA Thresholds")
+        st.markdown(f"- **Category:** `{selected_category}`")
+        st.markdown(f"- **Max Allowed Latency:** `{active_sla.max_latency:.1f} ms`")
+        st.markdown(f"- **Min Required Availability:** `{active_sla.min_availability:.2f}%`")
+        st.markdown(f"- **Min Required Reliability:** `{active_sla.min_reliability:.2f}%`")
+        st.info("💡 Modify SLA thresholds via the sidebar to observe real-time candidate eligibility filtering.")
+
+    with cfg_col2:
+        st.markdown("#### ⚖️ Hysteresis & Anti-Flapping Policy")
+        st.markdown(f"- **Minimum QoS Margin (ΔQoS):** `{active_hysteresis.min_qos_delta:.4f}`")
+        st.markdown(f"- **Switching Cooldown Steps:** `{active_hysteresis.cooldown_steps}`")
+        st.info("💡 Hysteresis prevents unnecessary flapping between closely-ranked candidate cloud providers.")
+
+    st.markdown("---")
+    st.markdown("#### 🗄️ Database Persistent Storage Telemetry (Phase 9)")
+    db_sum = persistence_manager.get_summary()
+    pcol1, pcol2, pcol3, pcol4 = st.columns(4)
+    pcol1.metric("Database Status", "Connected (v1)" if db_sum.get("connected") else "Offline")
+    pcol2.metric("Persisted Reselections", db_sum.get("total_reselection_records", 0))
+    pcol3.metric("Persisted Monitoring", db_sum.get("total_monitoring_events", 0))
+    pcol4.metric("Persisted Mutations", db_sum.get("total_simulation_events", 0))
+
+    with st.expander("⚠️ Database Purge Operations (Explicit Confirmation Required)"):
+        st.caption(
+            "Purging the SQLite database is a permanent destructive action. Normal simulation resets "
+            "strictly preserve all historical audit logs. Only use this control when you explicitly want to erase all historical records."
+        )
+        confirm_purge = st.checkbox("I confirm that I want to permanently delete all persisted database records.", key="cfg_confirm_purge")
+        if st.button("🗑️ Permanently Delete All Persisted Database History", disabled=not confirm_purge, type="secondary", key="cfg_btn_purge"):
             persistence_manager.simulation_events.clear_events(confirmed=True)
             persistence_manager.monitoring_events.clear_events(confirmed=True)
             persistence_manager.reselection.clear_records(confirmed=True)
