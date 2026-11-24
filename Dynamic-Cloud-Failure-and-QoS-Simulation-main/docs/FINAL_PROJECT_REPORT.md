@@ -133,7 +133,7 @@ The academic foundation of this project is inspired by recent advances in cloud 
 ## Chapter 8: System Architecture
 
 The overall architecture is partitioned into four decoupled layers:
-1. **Presentation Layer (`app.py`, `src/analytics.py`):** Interactive Streamlit web console, KPI metric cards, fault injection sliders, and Plotly visualization charts.
+1. **Presentation Layer (`app.py`, `src/analytics.py`):** Cloud Command Center interface built with Streamlit, featuring a dark navy theme, system health banner, visual service cards with health badges and QoS progress bars, connected-node SVG topology map, 7-step failover workflow tracker, six navigable views (Dashboard, Cloud Service Map, Performance Analytics, Failure Lab, Decision History, Configuration), and Plotly visualization charts.
 2. **Control & Surveillance Layer (`src/failure_simulator.py`, `src/monitoring_engine.py`, `src/override_manager.py`):** Fault injection mutating service states, background periodic surveillance, and manual mode state management.
 3. **Decision & Recommendation Pipeline (`src/recommendation_engine.py`, `src/sla_config.py`, `src/hysteresis_config.py`):** Linear multi-stage pipeline executing category filtering, SLA exclusion, QoS evaluation, deterministic ranking, and hysteresis control.
 4. **Data & State Management Layer (`src/service_registry.py`, `src/explainability.py`):** Canonical data models, immutable baseline reference bounds, and append-only audit logs.
@@ -165,7 +165,7 @@ The project follows an empirical, test-driven research engineering methodology:
 1. **Baseline Invariant Modeling:** Candidate cloud services are initialized with immutable baseline reference bounds, preventing normalization distortion during fault injection.
 2. **Constraint-First Pipeline:** Hard SLA constraints are evaluated prior to ranking, guaranteeing that utility scores cannot override safety thresholds.
 3. **Threshold Damping Formulation:** Hysteresis deadbands suppress switching under small score fluctuations, reducing flapping.
-4. **Automated Verification Harness:** 122 automated unit, integration, and UI tests verify all execution paths.
+4. **Automated Verification Harness:** 138 automated unit, integration, and UI tests verify all execution paths.
 5. **Empirical Benchmarking:** A standalone evaluation harness (`experiments/run_research_experiments.py`) executes 8 experiments and a 100-step realistic trace comparing 4 baseline strategies.
 
 ---
