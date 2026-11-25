@@ -1,5 +1,0 @@
-strategy,total_cycles,sla_compliance_rate_percent,outage_exposure_rate_percent,total_switches,unnecessary_switches,justified_switches,average_qos_score,decision_latency_ms
-Static,100,60.0,20.0,0,0,0,0.7827,"{'mean': 0.0002, 'stdev': 0.0001}"
-QoS-Only,100,80.0,0.0,18,15,3,0.7825,"{'mean': 0.1069, 'stdev': 0.0184}"
-SLA-Aware No Hysteresis,100,100.0,0.0,17,15,2,0.7561,"{'mean': 0.0638, 'stdev': 0.0128}"
-Proposed Unified,100,100.0,0.0,1,0,1,0.7476,"{'mean': 0.0655, 'stdev': 0.0138}"

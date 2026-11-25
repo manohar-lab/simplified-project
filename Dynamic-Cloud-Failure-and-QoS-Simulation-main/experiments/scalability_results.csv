@@ -1,6 +1,0 @@
-service_count,sla_filtering_ms,qos_evaluation_ms,recommendation_pipeline_ms,monitoring_cycle_ms,peak_memory_kb,throughput_services_per_sec
-10,"{'mean': 0.0094, 'stdev': 0.001}","{'mean': 0.0612, 'stdev': 0.0026}","{'mean': 0.3506, 'stdev': 0.0155, 'min': 0.3374, 'max': 0.4135}","{'mean': 0.1698, 'stdev': 0.0142}",4.66,28521.4
-50,"{'mean': 0.0442, 'stdev': 0.0019}","{'mean': 0.3095, 'stdev': 0.0108}","{'mean': 1.0256, 'stdev': 0.0453, 'min': 0.9815, 'max': 1.2185}","{'mean': 0.79, 'stdev': 0.0447}",14.28,48751.6
-100,"{'mean': 0.0893, 'stdev': 0.0014}","{'mean': 0.6372, 'stdev': 0.0141}","{'mean': 1.8772, 'stdev': 0.0498, 'min': 1.8256, 'max': 2.0101}","{'mean': 1.5098, 'stdev': 0.0848}",27.15,53271.5
-500,"{'mean': 0.4039, 'stdev': 0.007}","{'mean': 2.8997, 'stdev': 0.1782}","{'mean': 9.4983, 'stdev': 0.2218, 'min': 9.2836, 'max': 10.1674}","{'mean': 7.6482, 'stdev': 0.6716}",143.18,52641.2
-1000,"{'mean': 0.749, 'stdev': 0.1069}","{'mean': 6.2478, 'stdev': 0.4045}","{'mean': 17.7076, 'stdev': 0.4731, 'min': 17.0479, 'max': 18.9446}","{'mean': 20.2354, 'stdev': 7.7391}",256.63,56473.0
