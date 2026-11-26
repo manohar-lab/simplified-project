@@ -86,30 +86,32 @@ def build_comparison_table(
 
 
 def build_event_history_table(events: list) -> pd.DataFrame:
-    """Convert simulation event history into a display DataFrame."""
+    """Convert simulation event history into a display DataFrame with reselection results."""
     if not events:
         return pd.DataFrame(columns=[
-            "Timestamp", "Event", "Service", "Previous State", "Updated State",
+            "Timestamp", "Event", "Target Service", "Previous State", "Updated State", "Resulting Selected Service",
         ])
     rows = []
-    for evt in events:
+    # Display newest events first for superior dashboard responsiveness
+    for evt in reversed(events):
         prev_status = evt.previous_state.get("status", "")
         new_status = evt.updated_state.get("status", "")
         prev_summary = (
-            f"Lat: {evt.previous_state.get('latency', '?'):.1f}ms, "
-            f"Avail: {evt.previous_state.get('availability', '?'):.1f}%, "
-            f"Status: {prev_status}"
+            f"Lat: {evt.previous_state.get('latency', 0):.1f}ms | "
+            f"Avail: {evt.previous_state.get('availability', 0):.1f}% | "
+            f"{prev_status}"
         )
         new_summary = (
-            f"Lat: {evt.updated_state.get('latency', '?'):.1f}ms, "
-            f"Avail: {evt.updated_state.get('availability', '?'):.1f}%, "
-            f"Status: {new_status}"
+            f"Lat: {evt.updated_state.get('latency', 0):.1f}ms | "
+            f"Avail: {evt.updated_state.get('availability', 0):.1f}% | "
+            f"{new_status}"
         )
         rows.append({
-            "Timestamp": evt.timestamp,
+            "Timestamp (UTC)": evt.timestamp,
             "Event": evt.event_type.replace("_", " ").title(),
-            "Service": evt.service_name,
+            "Target Service": evt.service_name,
             "Previous State": prev_summary,
             "Updated State": new_summary,
+            "Resulting Selected Service": evt.resulting_recommendation or "—",
         })
     return pd.DataFrame(rows)

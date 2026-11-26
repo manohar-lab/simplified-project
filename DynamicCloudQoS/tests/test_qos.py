@@ -380,3 +380,94 @@ class TestEventHistory:
         assert len(simulator.get_history()) > 0
         simulator.clear_history()
         assert len(simulator.get_history()) == 0
+
+    def test_event_records_reselection_result(self, compute_services, simulator):
+        """Verify resulting recommendation is stored in event history."""
+        svc = compute_services[0]
+        simulator.simulate_outage(svc, recommendation="Aether Compute HighPerf (0.7937)")
+        evt = simulator.get_history()[-1]
+        assert evt.resulting_recommendation == "Aether Compute HighPerf (0.7937)"
+        df = build_event_history_table([evt])
+        assert "Resulting Selected Service" in df.columns
+        assert df["Resulting Selected Service"].iloc[0] == "Aether Compute HighPerf (0.7937)"
+
+
+# ══════════════════════════════════════════════════════════════════
+# 16. Academic Review Demonstration Scenario (Steps A through J)
+# ══════════════════════════════════════════════════════════════════
+
+class TestReviewDemonstrationScenarioAThroughJ:
+    """Verifies the complete 10-step academic review demonstration sequence."""
+
+    def test_complete_scenarios_a_through_j(self, compute_services, simulator):
+        # A. Start with five healthy Compute services
+        assert len(compute_services) == 5
+        for svc in compute_services:
+            assert svc.category == "Compute"
+            assert svc.status == "AVAILABLE"
+
+        # B. Identify the highest-scoring service
+        rec_init = recommend(compute_services, "Compute")
+        assert rec_init.selected_service is not None
+        assert rec_init.selected_service.service_id == "SVC-C01"
+        assert rec_init.selected_score == pytest.approx(0.8168, abs=1e-3)
+        assert rec_init.runner_up.service_id == "SVC-C02"
+        assert rec_init.runner_up_score == pytest.approx(0.7937, abs=1e-3)
+
+        initial_score = rec_init.selected_score
+
+        # C. Inject a latency spike on the highest-scoring service
+        target = rec_init.selected_service
+        old_lat = target.latency
+        simulator.inject_latency_spike(target, delta=120.0)
+        assert target.latency == old_lat + 120.0
+
+        # D. Check whether its QoS score changes (drops)
+        new_score, _ = evaluate_service(target)
+        assert new_score < initial_score
+
+        # E. Trigger a complete outage on the target service
+        simulator.simulate_outage(target)
+        assert target.status == "UNAVAILABLE"
+
+        # F. Verify that the unavailable service is excluded
+        rec_outage = recommend(compute_services, "Compute")
+        excluded_ids = [s.service_id for s in rec_outage.excluded_services]
+        assert "SVC-C01" in excluded_ids
+
+        # G. Verify automatic reselection of the next-best eligible service (SVC-C02)
+        assert rec_outage.selected_service is not None
+        assert rec_outage.selected_service.service_id == "SVC-C02"
+        assert rec_outage.selected_service.status == "AVAILABLE"
+        assert rec_outage.selected_score == pytest.approx(0.7937, abs=1e-3)
+
+        # H. Restore the failed service
+        baselines = get_baseline_services("Compute")
+        simulator.restore_service(target, baselines)
+        assert target.status == "AVAILABLE"
+        assert target.latency == baselines[0].latency
+
+        # I. Verify that the service becomes eligible again and reclaims top rank
+        rec_restored = recommend(compute_services, "Compute")
+        assert rec_restored.selected_service.service_id == "SVC-C01"
+        assert rec_restored.selected_score == pytest.approx(initial_score, abs=1e-4)
+
+        # J. Reset the entire simulation and verify that all baseline values return
+        # Inject multiple faults across various services first
+        simulator.inject_latency_spike(compute_services[1])
+        simulator.degrade_availability(compute_services[2])
+        simulator.simulate_outage(compute_services[3])
+
+        simulator.reset_simulation(compute_services, "Compute")
+
+        # Verify all baseline values
+        for cur, bl in zip(compute_services, baselines):
+            assert cur.status == "AVAILABLE"
+            assert cur.latency == bl.latency
+            assert cur.cost == bl.cost
+            assert cur.availability == bl.availability
+            assert cur.reliability == bl.reliability
+
+        rec_reset = recommend(compute_services, "Compute")
+        assert rec_reset.selected_service.service_id == "SVC-C01"
+        assert rec_reset.selected_score == pytest.approx(0.8168, abs=1e-3)

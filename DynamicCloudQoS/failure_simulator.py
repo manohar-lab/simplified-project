@@ -70,37 +70,41 @@ class FailureSimulator:
     # ------------------------------------------------------------------
 
     def inject_latency_spike(self, service: CloudService,
-                             delta: Optional[float] = None) -> SimulationEvent:
+                             delta: Optional[float] = None,
+                             recommendation: Optional[str] = None) -> SimulationEvent:
         """Add a latency spike to *service*."""
         if service.status == "UNAVAILABLE":
             raise ValueError(f"{service.name} is already unavailable; restore it first.")
         prev = self._snapshot(service)
         service.latency += delta if delta is not None else self.LATENCY_SPIKE_DELTA
-        return self._record(service, "LATENCY_SPIKE", prev)
+        return self._record(service, "LATENCY_SPIKE", prev, recommendation)
 
     def degrade_availability(self, service: CloudService,
-                             drop: Optional[float] = None) -> SimulationEvent:
+                             drop: Optional[float] = None,
+                             recommendation: Optional[str] = None) -> SimulationEvent:
         """Reduce availability of *service*."""
         if service.status == "UNAVAILABLE":
             raise ValueError(f"{service.name} is already unavailable; restore it first.")
         prev = self._snapshot(service)
         service.availability = max(0.0, service.availability - (drop or self.AVAILABILITY_DROP))
-        return self._record(service, "AVAILABILITY_DEGRADATION", prev)
+        return self._record(service, "AVAILABILITY_DEGRADATION", prev, recommendation)
 
-    def simulate_outage(self, service: CloudService) -> SimulationEvent:
+    def simulate_outage(self, service: CloudService,
+                        recommendation: Optional[str] = None) -> SimulationEvent:
         """Mark *service* as UNAVAILABLE (total outage)."""
         if service.status == "UNAVAILABLE":
             raise ValueError(f"{service.name} is already unavailable.")
         prev = self._snapshot(service)
         service.status = "UNAVAILABLE"
-        return self._record(service, "SERVICE_OUTAGE", prev)
+        return self._record(service, "SERVICE_OUTAGE", prev, recommendation)
 
     # ------------------------------------------------------------------
     # Restoration
     # ------------------------------------------------------------------
 
     def restore_service(self, service: CloudService,
-                        baselines: List[CloudService]) -> SimulationEvent:
+                        baselines: List[CloudService],
+                        recommendation: Optional[str] = None) -> SimulationEvent:
         """Restore *service* to its baseline values."""
         baseline = next((b for b in baselines if b.service_id == service.service_id), None)
         if baseline is None:
@@ -111,11 +115,12 @@ class FailureSimulator:
         service.availability = baseline.availability
         service.reliability = baseline.reliability
         service.status = "AVAILABLE"
-        return self._record(service, "SERVICE_RESTORED", prev)
+        return self._record(service, "SERVICE_RESTORED", prev, recommendation)
 
     def reset_simulation(self, services: List[CloudService],
-                         category: str) -> List[SimulationEvent]:
-        """Restore ALL services to baseline and clear event history."""
+                         category: str,
+                         recommendation: Optional[str] = None) -> List[SimulationEvent]:
+        """Restore ALL services to baseline and record reset events."""
         baselines = get_baseline_services(category)
         events: List[SimulationEvent] = []
         for svc in services:
@@ -128,7 +133,7 @@ class FailureSimulator:
             svc.availability = baseline.availability
             svc.reliability = baseline.reliability
             svc.status = "AVAILABLE"
-            events.append(self._record(svc, "SIMULATION_RESET", prev))
+            events.append(self._record(svc, "SIMULATION_RESET", prev, recommendation))
         return events
 
     def get_history(self) -> List[SimulationEvent]:
