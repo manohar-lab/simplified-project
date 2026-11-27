@@ -359,14 +359,15 @@ with st.sidebar:
             unsafe_allow_html=True
         )
 
-    if st.button("↺ Reset Weights to Benchmark (1.00)", use_container_width=True, key="btn_reset_weights"):
+    def _reset_weights_cb():
         st.session_state.raw_weights = dict(DEFAULT_WEIGHTS)
         st.session_state.weights = dict(DEFAULT_WEIGHTS)
         st.session_state.slider_lat = DEFAULT_WEIGHTS["latency"]
         st.session_state.slider_cost = DEFAULT_WEIGHTS["cost"]
         st.session_state.slider_avail = DEFAULT_WEIGHTS["availability"]
         st.session_state.slider_rel = DEFAULT_WEIGHTS["reliability"]
-        st.rerun()
+
+    st.button("↺ Reset Weights to Benchmark (1.00)", use_container_width=True, key="btn_reset_weights", on_click=_reset_weights_cb)
 
     st.markdown("---")
 
