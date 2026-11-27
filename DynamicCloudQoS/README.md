@@ -198,5 +198,4 @@ pytest tests -v
 
 ---
 
-**Project:** Dynamic Cloud Failure Detection and QoS-Aware Service Reselection
-**Purpose:** Academic demonstration prototype for QoS-aware service selection, failure simulation, and automatic reselection
+
