@@ -4,8 +4,10 @@ Dynamic Cloud Failure Detection and QoS-Aware Service Reselection
 Interactive Streamlit Cloud Command Center dashboard.
 """
 
+import time
 import streamlit as st
 import pandas as pd
+from datetime import datetime, timezone
 from service_registry import CloudService, get_baseline_services, get_all_categories, get_baseline_bounds
 from qos_evaluator import evaluate_all, evaluate_service, DEFAULT_WEIGHTS, validate_weights
 from recommendation_engine import recommend, RecommendationResult
@@ -121,6 +123,56 @@ st.markdown("""
 /* ---- Table text colour fix ---- */
 [data-testid="stDataFrame"] { color: #E2E8F0; }
 
+/* ---- Workflow Flow Cards ---- */
+.workflow-box {
+    background: #0F172A;
+    border: 1px solid #1E293B;
+    border-radius: 14px;
+    padding: 20px;
+    margin: 15px 0 25px 0;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+.flow-col {
+    border-radius: 10px;
+    padding: 16px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+.flow-col-before {
+    border: 1px solid #38BDF860;
+    background: linear-gradient(180deg, rgba(14, 165, 233, 0.08) 0%, rgba(30, 41, 59, 0.9) 100%);
+}
+.flow-col-failure {
+    border: 1px solid #EF444480;
+    background: linear-gradient(180deg, rgba(239, 68, 68, 0.14) 0%, rgba(30, 41, 59, 0.9) 100%);
+}
+.flow-col-after {
+    border: 1px solid #10B98180;
+    background: linear-gradient(180deg, rgba(16, 185, 129, 0.14) 0%, rgba(30, 41, 59, 0.9) 100%);
+}
+.flow-stage-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+}
+.flow-svc-name {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #F8FAFC;
+    margin: 2px 0 4px;
+}
+.flow-msg {
+    font-size: 0.8rem;
+    padding: 8px 10px;
+    border-radius: 6px;
+    margin-top: 10px;
+    line-height: 1.35;
+}
+
 /* Hide Streamlit branding */
 #MainMenu, footer, header { visibility: hidden; }
 </style>
@@ -144,6 +196,8 @@ def _init_state():
         st.session_state.raw_weights = dict(DEFAULT_WEIGHTS)
     if "weights" not in st.session_state:
         st.session_state.weights = dict(DEFAULT_WEIGHTS)
+    if "last_failover_event" not in st.session_state:
+        st.session_state.last_failover_event = None
 
 _init_state()
 
@@ -153,8 +207,96 @@ def _switch_category(cat: str):
     st.session_state.services = get_baseline_services(cat)
     st.session_state.baselines = get_baseline_services(cat)
     st.session_state.simulator = FailureSimulator()
+    st.session_state.last_failover_event = None
     if "sim_target" in st.session_state:
         del st.session_state["sim_target"]
+
+
+def trigger_active_service_failure():
+    """Simulate an immediate failure of the currently active/recommended cloud service."""
+    curr_rec = recommend(st.session_state.services, st.session_state.category, st.session_state.weights)
+    if not curr_rec.selected_service:
+        st.warning("⚠️ No active healthy cloud service available to fail.")
+        return
+
+    target = curr_rec.selected_service
+    prev_name = target.name
+    prev_id = target.service_id
+    prev_score = curr_rec.selected_score
+
+    # Visual loading transition for reselection demonstration
+    with st.spinner(f"🚨 Cloud service failure detected on {prev_name} ({prev_id})! Searching for an alternative..."):
+        time.sleep(0.35)
+
+    # Trigger outage on active service
+    evt = st.session_state.simulator.fail_active_service(target)
+
+    # Immediately recalculate QoS scores and reselect
+    new_rec = recommend(st.session_state.services, st.session_state.category, st.session_state.weights)
+    if new_rec.selected_service:
+        new_name = new_rec.selected_service.name
+        new_id = new_rec.selected_service.service_id
+        new_score = new_rec.selected_score
+        has_alt = True
+        msg = "Automatic service reselection completed successfully."
+        rec_summary = f"{new_name} (QoS: {new_score:.4f})"
+    else:
+        new_name = "None Available"
+        new_id = "N/A"
+        new_score = 0.0
+        has_alt = False
+        msg = "All candidate services in this category are offline. No alternative available."
+        rec_summary = "No Eligible Service"
+
+    evt.resulting_recommendation = rec_summary
+
+    st.session_state.last_failover_event = {
+        "previous_service": prev_name,
+        "previous_id": prev_id,
+        "previous_score": prev_score,
+        "failed_service": prev_name,
+        "failed_id": prev_id,
+        "new_service": new_name,
+        "new_id": new_id,
+        "new_score": new_score,
+        "message": msg,
+        "timestamp": evt.timestamp,
+        "has_alternative": has_alt,
+    }
+    st.toast(f"🔴 Failure simulated on {prev_name}. Auto-reselected {new_name}!", icon="⚡")
+    st.rerun()
+
+
+def trigger_restore_failed_service():
+    """Restore the most recently failed service to healthy status."""
+    failed = [s for s in st.session_state.services if s.status == "UNAVAILABLE"]
+    if not failed:
+        st.info("No failed services to restore.")
+        return
+
+    target = failed[-1]
+    evt = st.session_state.simulator.restore_service(target, st.session_state.baselines)
+    rec_after = recommend(st.session_state.services, st.session_state.category, st.session_state.weights)
+    rec_summary = f"{rec_after.selected_service.name} (QoS: {rec_after.selected_score:.4f})" if rec_after.selected_service else "No Eligible Service"
+    evt.resulting_recommendation = rec_summary
+
+    remaining_failed = [s for s in st.session_state.services if s.status == "UNAVAILABLE"]
+    if not remaining_failed:
+        st.session_state.last_failover_event = None
+
+    st.toast(f"🔧 Restored {target.name} to Healthy status", icon="🔧")
+    st.rerun()
+
+
+def trigger_reset_simulation():
+    """Restore all services to baseline state and clear failure state."""
+    st.session_state.simulator.reset_simulation(
+        st.session_state.services, st.session_state.category,
+        recommendation="NovaCompute Standard (0.8168)" if st.session_state.category == "Compute" else "NovaStore Premium"
+    )
+    st.session_state.last_failover_event = None
+    st.toast("🔄 Simulation reset to initial baseline", icon="🔄")
+    st.rerun()
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -228,67 +370,28 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # ---- Simulation Controls ----
-    st.markdown("### 🧪 Failure Simulation Lab")
-    svc_names = {s.name: s for s in st.session_state.services}
-    curr_options = list(svc_names.keys())
-    target_idx = 0
-    if "sim_target" in st.session_state and st.session_state.sim_target in curr_options:
-        target_idx = curr_options.index(st.session_state.sim_target)
-    target_name = st.selectbox("Target Service", curr_options, index=target_idx, key="sim_target")
-    target_svc = svc_names[target_name]
+    # ---- Simulation Controls (One-Click Autonomous Failover) ----
+    st.markdown("### ⚡ Failure Simulation Lab")
+    st.caption("One-click active cloud failure and autonomous reselection")
 
-    sim_col1, sim_col2 = st.columns(2)
-    with sim_col1:
-        if st.button("⚡ Latency Spike", use_container_width=True, key="btn_lat"):
-            try:
-                evt = st.session_state.simulator.inject_latency_spike(target_svc)
-                rec_after = recommend(st.session_state.services, st.session_state.category, st.session_state.weights)
-                rec_str = f"{rec_after.selected_service.name} ({rec_after.selected_score:.4f})" if rec_after.selected_service else "No Eligible Service"
-                evt.resulting_recommendation = rec_str
-                st.toast(f"⚡ Latency spike injected on {target_svc.name} (+120ms)", icon="⚡")
-                st.rerun()
-            except ValueError as e:
-                st.error(str(e))
-        if st.button("🔴 Outage", use_container_width=True, key="btn_outage"):
-            try:
-                evt = st.session_state.simulator.simulate_outage(target_svc)
-                rec_after = recommend(st.session_state.services, st.session_state.category, st.session_state.weights)
-                rec_str = f"{rec_after.selected_service.name} ({rec_after.selected_score:.4f})" if rec_after.selected_service else "No Eligible Service"
-                evt.resulting_recommendation = rec_str
-                st.toast(f"🔴 Outage simulated on {target_svc.name} (UNAVAILABLE)", icon="🔴")
-                st.rerun()
-            except ValueError as e:
-                st.error(str(e))
-    with sim_col2:
-        if st.button("📉 Degrade Avail", use_container_width=True, key="btn_avail"):
-            try:
-                evt = st.session_state.simulator.degrade_availability(target_svc)
-                rec_after = recommend(st.session_state.services, st.session_state.category, st.session_state.weights)
-                rec_str = f"{rec_after.selected_service.name} ({rec_after.selected_score:.4f})" if rec_after.selected_service else "No Eligible Service"
-                evt.resulting_recommendation = rec_str
-                st.toast(f"📉 Availability degraded on {target_svc.name} (-15%)", icon="📉")
-                st.rerun()
-            except ValueError as e:
-                st.error(str(e))
-        if st.button("🔧 Restore", use_container_width=True, key="btn_restore"):
-            try:
-                evt = st.session_state.simulator.restore_service(target_svc, st.session_state.baselines)
-                rec_after = recommend(st.session_state.services, st.session_state.category, st.session_state.weights)
-                rec_str = f"{rec_after.selected_service.name} ({rec_after.selected_score:.4f})" if rec_after.selected_service else "No Eligible Service"
-                evt.resulting_recommendation = rec_str
-                st.toast(f"🔧 {target_svc.name} restored to baseline", icon="🔧")
-                st.rerun()
-            except ValueError as e:
-                st.error(str(e))
+    failed_svcs_sidebar = [s for s in st.session_state.services if s.status == "UNAVAILABLE"]
 
-    if st.button("🔄 Reset Entire Simulation", use_container_width=True, type="primary", key="btn_reset"):
-        st.session_state.simulator.reset_simulation(
-            st.session_state.services, st.session_state.category,
-            recommendation="NovaCompute Standard (0.8168)" if st.session_state.category == "Compute" else "NovaStore Premium"
-        )
-        st.toast("🔄 Simulation reset to initial baseline", icon="🔄")
-        st.rerun()
+    if st.button("⚡ Simulate Cloud Failure", use_container_width=True, type="primary", key="sb_btn_fail",
+                 help="Automatically fails the active service and triggers QoS reselection"):
+        trigger_active_service_failure()
+
+    if failed_svcs_sidebar:
+        last_failed_name = failed_svcs_sidebar[-1].name
+        if st.button("🔧 Restore Failed Service", use_container_width=True, key="sb_btn_restore",
+                     help=f"Restore {last_failed_name} to Healthy status"):
+            trigger_restore_failed_service()
+    else:
+        st.button("🔧 Restore Failed Service", use_container_width=True, disabled=True, key="sb_btn_restore_dis",
+                  help="No failed services to restore")
+
+    if st.button("🔄 Reset Entire Simulation", use_container_width=True, key="sb_btn_reset",
+                 help="Restore all services to baseline state"):
+        trigger_reset_simulation()
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -364,7 +467,158 @@ with kpi_cols[4]:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# SECTION B: Recommendation Card
+# SECTION B: One-Click Cloud Failure & Automatic Reselection
+# ═══════════════════════════════════════════════════════════════════
+
+st.markdown('<div class="section-header">⚡ Dynamic Cloud Failure & Reselection Console</div>', unsafe_allow_html=True)
+
+# Prominent Action Bar in Main View
+failed_svcs_main = [s for s in services if s.status == "UNAVAILABLE"]
+action_col1, action_col2, action_col3 = st.columns([1.6, 1.2, 1.0])
+
+with action_col1:
+    if st.button("⚡ Simulate Cloud Failure", use_container_width=True, type="primary", key="main_btn_fail",
+                 help="Instantly simulate failure on the active cloud service and trigger real-time reselection"):
+        trigger_active_service_failure()
+
+with action_col2:
+    if failed_svcs_main:
+        last_failed_name = failed_svcs_main[-1].name
+        if st.button("🔧 Restore Failed Service", use_container_width=True, key="main_btn_restore",
+                     help=f"Restore {last_failed_name} to Healthy status"):
+            trigger_restore_failed_service()
+    else:
+        st.button("🔧 Restore Failed Service", use_container_width=True, disabled=True, key="main_btn_restore_dis",
+                  help="No failed services to restore")
+
+with action_col3:
+    if st.button("🔄 Reset Entire Simulation", use_container_width=True, key="main_btn_reset",
+                 help="Restore all services to original baseline values"):
+        trigger_reset_simulation()
+
+# Before-and-After Visual Workflow Display
+event = st.session_state.get("last_failover_event")
+
+if event:
+    st.markdown(f"""
+    <div class="workflow-box">
+        <div style="font-size:0.85rem; color:#94A3B8; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center;">
+            <span><strong>REAL-TIME FAILOVER & RESELECTION LIFECYCLE</strong></span>
+            <span style="color:#64748B;">Audit Timestamp: {event['timestamp']}</span>
+        </div>
+    """, unsafe_allow_html=True)
+
+    c_prev, c_arr1, c_fail, c_arr2, c_new = st.columns([2.8, 0.4, 3.2, 0.4, 3.2])
+
+    with c_prev:
+        st.markdown(f"""
+        <div class="flow-col flow-col-before">
+            <div>
+                <div class="flow-stage-title" style="color:#38BDF8;">1. BEFORE FAILURE</div>
+                <div class="flow-svc-name">{event['previous_service']}</div>
+                <div style="color:#94A3B8; font-size:0.8rem; margin-bottom:6px;">ID: <code>{event['previous_id']}</code></div>
+            </div>
+            <div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+                    <span style="color:#CBD5E1; font-size:0.85rem;">QoS Score:</span>
+                    <span style="color:#38BDF8; font-size:1.15rem; font-weight:700;">{event['previous_score']:.4f}</span>
+                </div>
+                <div style="margin-top:6px;">
+                    <span class="badge-healthy">🟢 Healthy</span>
+                </div>
+                <div class="flow-msg" style="background:#0369A120; color:#BAE6FD; border:1px solid #0284C740;">
+                    Active cloud service handling workload prior to failure.
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with c_arr1:
+        st.markdown('<div style="text-align:center; padding-top:60px; font-size:1.8rem; color:#EF4444;">➜</div>', unsafe_allow_html=True)
+
+    with c_fail:
+        st.markdown(f"""
+        <div class="flow-col flow-col-failure">
+            <div>
+                <div class="flow-stage-title" style="color:#F87171;">2. FAILURE DETECTED</div>
+                <div class="flow-svc-name">{event['failed_service']}</div>
+                <div style="color:#94A3B8; font-size:0.8rem; margin-bottom:6px;">ID: <code>{event['failed_id']}</code></div>
+            </div>
+            <div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+                    <span style="color:#CBD5E1; font-size:0.85rem;">Status:</span>
+                    <span style="color:#EF4444; font-size:1.15rem; font-weight:700;">FAILED</span>
+                </div>
+                <div style="margin-top:6px;">
+                    <span class="badge-unavailable">🔴 Failed</span>
+                </div>
+                <div class="flow-msg" style="background:#991B1B25; color:#FECACA; border:1px solid #DC262650;">
+                    ⚠️ Cloud service failure detected. Searching for an alternative...
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with c_arr2:
+        st.markdown('<div style="text-align:center; padding-top:60px; font-size:1.8rem; color:#10B981;">➜</div>', unsafe_allow_html=True)
+
+    with c_new:
+        if event['has_alternative']:
+            badge_html = '<span class="badge-healthy">🟢 Healthy</span>'
+            score_html = f"<span style='color:#10B981; font-size:1.15rem; font-weight:700;'>{event['new_score']:.4f}</span>"
+            msg_style = "background:#065F4625; color:#A7F3D0; border:1px solid #05966950;"
+            msg_text = "✅ Automatic service reselection completed successfully."
+        else:
+            badge_html = '<span class="badge-unavailable">🔴 Failed / No Alternative</span>'
+            score_html = "<span style='color:#EF4444; font-size:1.15rem; font-weight:700;'>0.0000</span>"
+            msg_style = "background:#991B1B25; color:#FECACA; border:1px solid #DC262650;"
+            msg_text = "⚠️ All candidate services offline. No alternative available."
+
+        st.markdown(f"""
+        <div class="flow-col flow-col-after">
+            <div>
+                <div class="flow-stage-title" style="color:#34D399;">3. AFTER AUTOMATIC RESELECTION</div>
+                <div class="flow-svc-name">{event['new_service']}</div>
+                <div style="color:#94A3B8; font-size:0.8rem; margin-bottom:6px;">ID: <code>{event['new_id']}</code></div>
+            </div>
+            <div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+                    <span style="color:#CBD5E1; font-size:0.85rem;">QoS Score:</span>
+                    {score_html}
+                </div>
+                <div style="margin-top:6px;">
+                    {badge_html}
+                </div>
+                <div class="flow-msg" style="{msg_style}">
+                    {msg_text}
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+else:
+    active_name = rec.selected_service.name if rec.selected_service else "None"
+    active_id = rec.selected_service.service_id if rec.selected_service else "N/A"
+    st.markdown(f"""
+    <div style="background:linear-gradient(135deg, #0F172A 0%, #1E293B 100%); border:1px solid #334155; border-radius:12px; padding:16px 20px; margin:10px 0 20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+                <div style="font-size:0.85rem; color:#38BDF8; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">
+                    Ready for Autonomous Failure & Reselection Demonstration
+                </div>
+                <div style="color:#94A3B8; font-size:0.88rem;">
+                    Currently Active Service: <strong style="color:#F1F5F9;">{active_name}</strong> (<code>{active_id}</code> | QoS: <strong>{rec.selected_score:.4f}</strong> | <span class="badge-healthy">🟢 Healthy</span>).
+                    Click <strong>'Simulate Cloud Failure'</strong> above or in the sidebar to simulate an immediate outage on the active service and observe autonomous reselection in real-time.
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION C: Recommendation Card
 # ═══════════════════════════════════════════════════════════════════
 
 st.markdown('<div class="section-header">🎯 Current Service Recommendation</div>', unsafe_allow_html=True)
@@ -413,7 +667,7 @@ with st.expander("📝 Selection Explanation", expanded=True):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# SECTION C: Service Registry Table
+# SECTION D: Service Registry Table
 # ═══════════════════════════════════════════════════════════════════
 
 st.markdown('<div class="section-header">📋 Service Registry</div>', unsafe_allow_html=True)
@@ -441,7 +695,7 @@ st.dataframe(df_registry, use_container_width=True, hide_index=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
-# SECTION D: QoS Analytics
+# SECTION E: QoS Analytics
 # ═══════════════════════════════════════════════════════════════════
 
 st.markdown('<div class="section-header">📈 QoS Analytics</div>', unsafe_allow_html=True)
@@ -479,7 +733,7 @@ with chart_col6:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# SECTION E: Comparison Table (ranked candidates)
+# SECTION F: Candidate Ranking
 # ═══════════════════════════════════════════════════════════════════
 
 if ranked:
@@ -489,7 +743,7 @@ if ranked:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# SECTION F: Event History
+# SECTION G: Simulation Event History
 # ═══════════════════════════════════════════════════════════════════
 
 st.markdown('<div class="section-header">📜 Simulation Event History</div>', unsafe_allow_html=True)

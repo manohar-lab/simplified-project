@@ -471,3 +471,74 @@ class TestReviewDemonstrationScenarioAThroughJ:
         rec_reset = recommend(compute_services, "Compute")
         assert rec_reset.selected_service.service_id == "SVC-C01"
         assert rec_reset.selected_score == pytest.approx(0.8168, abs=1e-3)
+
+
+# ══════════════════════════════════════════════════════════════════
+# 17. One-Click Autonomous Failover & Reselection Workflow
+# ══════════════════════════════════════════════════════════════════
+
+class TestOneClickAutonomousFailover:
+    """Verifies one-click active service failure, automatic reselection, and restore."""
+
+    def test_one_click_active_failure_and_reselection(self, compute_services, simulator):
+        # 1. Active service is SVC-C01
+        rec1 = recommend(compute_services, "Compute")
+        active = rec1.selected_service
+        assert active.service_id == "SVC-C01"
+        assert active.status == "AVAILABLE"
+
+        # 2. Simulate failure of active service
+        evt = simulator.fail_active_service(active)
+        assert active.status == "UNAVAILABLE"
+        assert evt.service_id == "SVC-C01"
+        assert evt.event_type == "SERVICE_OUTAGE"
+
+        # 3. Automatic reselection immediately excludes failed service
+        rec2 = recommend(compute_services, "Compute")
+        assert rec2.selected_service.service_id == "SVC-C02"
+        assert rec2.selected_service.name == "Aether Compute HighPerf"
+        assert rec2.selected_score == pytest.approx(0.7937, abs=1e-3)
+        assert active not in [r[0] for r in rec2.ranking]
+
+    def test_restore_failed_service_promotes_when_better(self, compute_services, simulator):
+        baselines = get_baseline_services("Compute")
+        rec1 = recommend(compute_services, "Compute")
+        active = rec1.selected_service
+        simulator.fail_active_service(active)
+
+        # Confirm SVC-C02 is active
+        rec2 = recommend(compute_services, "Compute")
+        assert rec2.selected_service.service_id == "SVC-C02"
+
+        # Restore failed service without specifying ID
+        evt = simulator.restore_failed_service(compute_services, baselines)
+        assert evt is not None
+        assert evt.service_id == "SVC-C01"
+        assert compute_services[0].status == "AVAILABLE"
+
+        # Recommendation engine naturally promotes SVC-C01 back since 0.8168 > 0.7937
+        rec3 = recommend(compute_services, "Compute")
+        assert rec3.selected_service.service_id == "SVC-C01"
+        assert rec3.selected_score == pytest.approx(0.8168, abs=1e-3)
+
+    def test_cascade_all_services_failure_gracefully_handled(self, compute_services, simulator):
+        baselines = get_baseline_services("Compute")
+
+        # Fail each active service one by one
+        for _ in range(len(compute_services)):
+            rec = recommend(compute_services, "Compute")
+            if rec.selected_service:
+                simulator.fail_active_service(rec.selected_service)
+
+        # Now all services are failed
+        rec_empty = recommend(compute_services, "Compute")
+        assert rec_empty.selected_service is None
+        assert rec_empty.all_unavailable is True
+        assert len(rec_empty.excluded_services) == 5
+
+        # Restore one service
+        evt = simulator.restore_failed_service(compute_services, baselines)
+        assert evt is not None
+        rec_recovered = recommend(compute_services, "Compute")
+        assert rec_recovered.selected_service is not None
+        assert rec_recovered.selected_service.status == "AVAILABLE"

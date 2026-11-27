@@ -98,6 +98,11 @@ class FailureSimulator:
         service.status = "UNAVAILABLE"
         return self._record(service, "SERVICE_OUTAGE", prev, recommendation)
 
+    def fail_active_service(self, service: CloudService,
+                            recommendation: Optional[str] = None) -> SimulationEvent:
+        """Automatically simulate an outage on the currently active service."""
+        return self.simulate_outage(service, recommendation)
+
     # ------------------------------------------------------------------
     # Restoration
     # ------------------------------------------------------------------
@@ -116,6 +121,20 @@ class FailureSimulator:
         service.reliability = baseline.reliability
         service.status = "AVAILABLE"
         return self._record(service, "SERVICE_RESTORED", prev, recommendation)
+
+    def restore_failed_service(self, services: List[CloudService],
+                               baselines: List[CloudService],
+                               target_service_id: Optional[str] = None,
+                               recommendation: Optional[str] = None) -> Optional[SimulationEvent]:
+        """Restore a failed service back to healthy status without manual picking."""
+        failed = [s for s in services if s.status == "UNAVAILABLE"]
+        if not failed:
+            return None
+        if target_service_id:
+            target = next((s for s in failed if s.service_id == target_service_id), failed[-1])
+        else:
+            target = failed[-1]
+        return self.restore_service(target, baselines, recommendation)
 
     def reset_simulation(self, services: List[CloudService],
                          category: str,

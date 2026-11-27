@@ -114,15 +114,22 @@ The prototype reproduces the baseline experimental benchmark figures captured in
 | **Normalized Availability** | 0.96 | 0.96 (0.9615) | Exact Match |
 | **Normalized Reliability** | 0.83 | 0.83 (0.8333) | Exact Match |
 
-## 7. Failure Scenarios
+## 7. Failure Scenarios & One-Click Autonomous Failover
 
-| Scenario | Effect | Reversible |
+The simulation replaces cumbersome manual failure targeting with an intelligent, **one-click active failure engine**:
+
+- **Active Service Targeting:** When the user clicks **"⚡ Simulate Cloud Failure"**, the platform automatically targets the currently recommended/active cloud service.
+- **Immediate State Transition:** The active service transitions from `Healthy` to `Failed (UNAVAILABLE)`.
+- **Autonomous Reselection:** The QoS engine immediately excludes the failed service, re-evaluates all remaining healthy candidates, and promotes the highest-scoring alternative (e.g., `SVC-C02 Aether Compute HighPerf`) to active status without requiring another click.
+- **Before-and-After Audit Card:** The dashboard displays a 3-stage visual lifecycle showing the initial state, failure detection alert, and final autonomous reselection with full explainability.
+- **Reversibility:** A **"🔧 Restore Failed Service"** button restores the failed service back to healthy status. The engine automatically re-promotes it only if its QoS score exceeds the current provider.
+- **Global Reset:** A **"🔄 Reset Entire Simulation"** button restores all services back to baseline.
+
+| Scenario / Action | Effect | Reversibility |
 | :--- | :--- | :--- |
-| **Latency Spike** | Adds +120ms to service latency | Yes (restore) |
-| **Availability Degradation** | Reduces availability by 15 percentage points | Yes (restore) |
-| **Service Outage** | Marks service as UNAVAILABLE | Yes (restore) |
-| **Service Restoration** | Returns service to baseline values | — |
-| **Reset Simulation** | Restores all services to original state | — |
+| **Simulate Cloud Failure** | Outage on active service (`UNAVAILABLE`) + immediate auto-reselection | Yes (Restore / Reset) |
+| **Restore Failed Service** | Returns most recently failed service to `Healthy` state | Natural QoS re-ranking |
+| **Reset Simulation** | Restores all registered services to baseline values | Baseline initial state |
 
 ## 8. Technologies Used
 
@@ -165,19 +172,22 @@ pytest tests -v
 
 ## 12. Demonstration Script
 
-### Step-by-step for academic review:
+### Step-by-step for academic review (One-Click Failover Flow):
 
-1. **Launch** — `streamlit run app.py` → Dashboard shows 5 healthy Compute services
-2. **Observe initial state** — SVC-C01 (NovaCompute Standard) selected with highest QoS score
-3. **Show ranking** — Scroll to QoS Analytics section to see service ranking chart
-4. **Inject latency spike** — Select NovaCompute Standard in sidebar → Click "⚡ Latency Spike"
-5. **Observe degradation** — QoS score drops, service may be reclassified as "Degraded"
-6. **Trigger outage** — Click "🔴 Outage" on the same service
-7. **Observe reselection** — Service becomes UNAVAILABLE, system automatically recommends next-best service
-8. **Read explanation** — Expand "Selection Explanation" to see human-readable reasoning
-9. **Restore service** — Select the failed service → Click "🔧 Restore"
-10. **Observe recovery** — Original service returns to pool, rankings recalculated
-11. **Reset** — Click "🔄 Reset Entire Simulation" to return to baseline state
+1. **Launch** — `streamlit run app.py` → Dashboard loads with 5 healthy Compute services.
+2. **Observe Initial State** — Point out `NovaCompute Standard (SVC-C01)` with QoS score **0.8168** as the active provider and `Aether Compute HighPerf (SVC-C02)` with **0.7937** as runner-up.
+3. **One-Click Failure Simulation** — Click the prominent **"⚡ Simulate Cloud Failure"** button.
+4. **Observe Before-and-After Lifecycle:**
+   - **Stage 1 (Before Failure):** Shows `NovaCompute Standard` was healthy and active.
+   - **Stage 2 (Failure Detected):** Shows `NovaCompute Standard` failed (`UNAVAILABLE`) with an immediate outage alert.
+   - **Stage 3 (After Automatic Reselection):** Shows autonomous failover promoted `Aether Compute HighPerf (SVC-C02)` to active with confirmation message.
+5. **Inspect Live Dashboard Updates:**
+   - Active Recommendation Card updates to `Aether Compute HighPerf`.
+   - KPI cards show 4 Healthy, 1 Unavailable.
+   - Radar and ranking charts dynamically reflect the re-ranked pool.
+   - **Simulation Event History** records the outage event with exact timestamp and reselection outcome.
+6. **Restore Failed Service** — Click **"🔧 Restore Failed Service"**. Observe `NovaCompute Standard` returning to Healthy status and reclaiming active status based on its superior baseline QoS score.
+7. **Reset** — Click **"🔄 Reset Entire Simulation"** to reset all states and clear history.
 
 ## 13. Limitations
 
