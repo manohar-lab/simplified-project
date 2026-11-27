@@ -197,14 +197,6 @@ pytest tests -v
 - **No authentication** — Single-operator console without RBAC
 - **Simulation scope** — Fault injection uses deterministic deltas, not stochastic models
 
-## 14. Future Enhancements
-
-1. Live cloud API connectors (AWS CloudWatch, Azure Monitor, Google Cloud Monitoring)
-2. SLA constraint enforcement with hard-threshold filtering
-3. Hysteresis anti-flapping to reduce unnecessary switching
-4. Periodic background monitoring with health state classification
-5. Multi-service DAG workflow composition
-6. Role-based access control and authentication
 
 ---
 
