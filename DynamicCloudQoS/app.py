@@ -1,4 +1,4 @@
-﻿"""
+"""
 Dynamic Cloud Failure Detection and QoS-Aware Service Reselection
 =================================================================
 Interactive Streamlit Cloud Command Center dashboard.
